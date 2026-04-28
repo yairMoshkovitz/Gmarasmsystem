@@ -121,7 +121,7 @@ def handle_registered_user(phone, user, message):
             send_sms(phone, "קיבלתי, תודה!")
         conn.close()
     else:
-        send_sms(phone, get_template("main_menu", name=user["name"]))
+        send_sms(phone, get_template(template_name="main_menu", name=user["name"]))
 
 def main():
     clear_screen()

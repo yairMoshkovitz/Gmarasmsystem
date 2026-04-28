@@ -7,14 +7,17 @@ from datetime import datetime
 import json
 import os
 
-def get_template(name, **kwargs):
+def get_template(template_name_pos, **kwargs):
+    # Use a unique name for the first argument to avoid collisions with kwargs like 'name'
+    template_name = kwargs.pop('template_name', template_name_pos)
     template_path = os.path.join(os.path.dirname(__file__), "sms_templates.json")
     try:
         with open(template_path, "r", encoding="utf-8") as f:
             templates = json.load(f)
-        return templates.get(name, "").format(**kwargs)
-    except:
-        return f"Template {name} not found"
+        template_content = templates.get(template_name, "")
+        return template_content.format(**kwargs)
+    except Exception as e:
+        return f"Template {template_name} error: {e}"
 
 def register_user(phone: str, name: str, last_name: str = None, city: str = None, age: int = None) -> int:
     """Register a new user. Returns user_id."""

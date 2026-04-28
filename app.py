@@ -50,6 +50,18 @@ def toggle_mode():
         return jsonify({"live_mode": get_live_mode()})
 
 @app.route('/')
+def dashboard():
+    conn = get_conn()
+    stats = {
+        "users_count": conn.execute("SELECT COUNT(*) FROM users").fetchone()[0],
+        "messages_count": conn.execute("SELECT COUNT(*) FROM sms_history").fetchone()[0],
+        "active_tractates": conn.execute("SELECT COUNT(DISTINCT tractate_name) FROM tractates").fetchone()[0],
+        "today_messages": conn.execute("SELECT COUNT(*) FROM sms_history WHERE date(sent_at) = date('now')").fetchone()[0]
+    }
+    conn.close()
+    return render_template('dashboard.html', stats=stats)
+
+@app.route('/simulator')
 def index():
     return render_template('index.html')
 

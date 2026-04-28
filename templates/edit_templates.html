@@ -7,20 +7,36 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
         body { background-color: #f8f9fa; font-family: system-ui, -apple-system, sans-serif; }
-        .container { max-width: 800px; margin-top: 50px; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-        h1 { color: #2c3e50; margin-bottom: 30px; border-bottom: 2px solid #eee; padding-bottom: 10px; }
-        .template-group { margin-bottom: 20px; }
-        label { font-weight: bold; margin-bottom: 5px; display: block; color: #34495e; }
-        textarea { width: 100%; height: 80px; resize: vertical; }
-        .btn-save { background-color: #27ae60; color: white; padding: 10px 30px; font-weight: bold; }
+        .container { max-width: 900px; margin-top: 30px; margin-bottom: 50px; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        h1 { color: #2c3e50; margin-bottom: 20px; border-bottom: 2px solid #eee; padding-bottom: 10px; }
+        .template-group { margin-bottom: 30px; padding: 20px; border: 1px solid #e9ecef; border-radius: 8px; }
+        label { font-weight: bold; margin-bottom: 10px; display: block; color: #075e54; font-size: 1.1rem; }
+        .explanation { font-size: 0.9rem; color: #666; margin-bottom: 10px; background: #f1f3f5; padding: 8px; border-radius: 4px; }
+        .warning { font-size: 0.85rem; color: #d63031; font-weight: bold; margin-top: 5px; }
+        textarea { width: 100%; height: 100px; resize: vertical; font-family: monospace; }
+        .btn-save { background-color: #27ae60; color: white; padding: 12px 40px; font-weight: bold; border-radius: 30px; }
         .btn-save:hover { background-color: #219150; color: white; }
-        .alert { display: none; margin-top: 20px; }
+        .alert { display: none; margin-top: 20px; position: fixed; top: 20px; left: 50%; transform: translateX(-50%); z-index: 1000; width: 300px; }
+        .navbar { background-color: #075e54; margin-bottom: 20px; }
+        .nav-link { color: white !important; }
+        .placeholder-list { color: #0984e3; font-weight: 500; }
     </style>
 </head>
 <body>
 
+<nav class="navbar navbar-expand-lg">
+    <div class="container-fluid px-4">
+        <a class="navbar-brand text-white" href="/">גמרא SMS</a>
+        <div class="navbar-nav ms-auto">
+            <a class="nav-link" href="/">לוח בקרה</a>
+            <a class="nav-link" href="/simulator">סימולטור</a>
+        </div>
+    </div>
+</nav>
+
 <div class="container">
     <h1>עריכת תבניות SMS</h1>
+    <p class="text-muted mb-4">כאן ניתן לערוך את תוכן ההודעות שהמערכת שולחת. שים לב להסברים ולערכים שאסור לשנות.</p>
     
     <form id="templates-form">
         <div id="templates-container">
@@ -42,16 +58,121 @@
     const successAlert = document.getElementById('success-alert');
     const errorAlert = document.getElementById('error-alert');
 
+    const metadata = {
+        "welcome_new_user": {
+            "title": "הודעת ברוך הבא",
+            "desc": "נשלחת למשתמש חדש מיד לאחר הרישום הראשוני.",
+            "placeholders": "{name} (שם המשתמש)",
+            "risk": "אין לשנות או למחוק את {name}"
+        },
+        "registration_success": {
+            "title": "אישור הרשמה למסכת",
+            "desc": "נשלחת לאחר שהמשתמש נרשם בהצלחה למסכת ספציפית.",
+            "placeholders": "{tractate}, {start_daf}, {end_daf}, {rate}, {hour}",
+            "risk": "אסור למחוק אף אחד מהערכים בסוגריים המסולסלים {} - הם הכרחיים להצגת נתוני הרישום!"
+        },
+        "main_menu": {
+            "title": "תפריט ראשי",
+            "desc": "ההודעה שנשלחת כשהמשתמש שולח הודעה ריקה או 'תפריט'.",
+            "placeholders": "{name}",
+            "risk": "שמור על מספור האפשרויות (1-6) כדי שהמערכת תדע לפענח את התשובות."
+        },
+        "ask_update_daf": {
+            "title": "בקשת עדכון דף",
+            "desc": "נשלחת כשהמשתמש מבקש לעדכן את המיקום שלו בלימוד.",
+            "placeholders": "אין",
+            "risk": "שינוי הטקסט עשוי לבלבל את המשתמש לגבי הפורמט הנדרש."
+        },
+        "update_daf_success": {
+            "title": "אישור עדכון דף",
+            "desc": "נשלחת לאחר שהמיקום עודכן בהצלחה.",
+            "placeholders": "{daf}",
+            "risk": "חובה להשאיר את {daf}"
+        },
+        "ask_pause_days": {
+            "title": "בקשת ימי הקפאה",
+            "desc": "נשלחת כשהמשתמש מבקש להקפיא את הלימוד.",
+            "placeholders": "אין",
+            "risk": "המשתמש חייב להבין שהוא צריך לענות במספר ימים."
+        },
+        "pause_success": {
+            "title": "אישור הקפאה",
+            "desc": "נשלחת לאחר שהלימוד הוקפא בהצלחה.",
+            "placeholders": "{days}, {date}",
+            "risk": "חובה להשאיר את {days} ו-{date}"
+        },
+        "resume_success": {
+            "title": "אישור ביטול הקפאה",
+            "desc": "נשלחת כשהמשתמש חוזר ללמוד.",
+            "placeholders": "אין",
+            "risk": "אין"
+        },
+        "ask_new_hour": {
+            "title": "בקשת שעת שליחה חדשה",
+            "desc": "נשלחת כשהמשתמש מבקש לשנות את שעת קבלת ההודעות.",
+            "placeholders": "אין",
+            "risk": "המשתמש חייב להבין שהוא צריך לענות במספר בין 0 ל-23."
+        },
+        "update_hour_success": {
+            "title": "אישור עדכון שעה",
+            "desc": "נשלחת לאחר ששעת השליחה עודכנה.",
+            "placeholders": "{hour}",
+            "risk": "חובה להשאיר את {hour}"
+        },
+        "already_sent_today": {
+            "title": "הודעה כבר נשלחה היום",
+            "desc": "נשלחת אם המשתמש מבקש שאלה נוספת באותו יום.",
+            "placeholders": "אין",
+            "risk": "אין"
+        },
+        "tomorrow_study": {
+            "title": "תזכורת ללימוד של מחר",
+            "desc": "נשלחת כחלק מהתגובה לשאלה יומית.",
+            "placeholders": "{next_study}",
+            "risk": "חובה להשאיר את {next_study}"
+        },
+        "question_format": {
+            "title": "מבנה השאלה היומית",
+            "desc": "זוהי התבנית העיקרית של השאלות שנשלחות מדי יום.",
+            "placeholders": "{tractate}, {daf}, {question}",
+            "risk": "קריטי: אסור למחוק את {tractate}, {daf} או {question}! בלעדיהם לא תישלח שאלה תקינה."
+        },
+        "unregistered_instructions": {
+            "title": "הוראות למשתמש לא רשום",
+            "desc": "נשלחת למי ששולח הודעה ואינו רשום במערכת.",
+            "placeholders": "אין",
+            "risk": "חשוב להשאיר את הדוגמה ברורה כדי שאנשים ידעו איך להירשם."
+        },
+        "error_parsing_registration": {
+            "title": "שגיאת רישום",
+            "desc": "נשלחת כשהמערכת לא מצליחה לפענח את הודעת הרישום.",
+            "placeholders": "אין",
+            "risk": "אין"
+        },
+        "tractate_not_found": {
+            "title": "מסכת לא נמצאה",
+            "desc": "נשלחת כשהמשתמש מנסה להירשם למסכת שלא קיימת במאגר.",
+            "placeholders": "{tractate}",
+            "risk": "חובה להשאיר את {tractate}"
+        }
+    };
+
     // Load templates
     fetch('/api/templates')
         .then(res => res.json())
         .then(templates => {
             for (const [key, value] of Object.entries(templates)) {
+                const meta = metadata[key] || { title: key, desc: "אין תיאור זמין", placeholders: "לא ידוע", risk: "אין מידע" };
                 const div = document.createElement('div');
                 div.className = 'template-group';
                 div.innerHTML = `
-                    <label for="${key}">${key}</label>
+                    <label for="${key}">${meta.title} (${key})</label>
+                    <div class="explanation">
+                        <strong>תיאור:</strong> ${meta.desc}<br>
+                        <strong>תגיות להחלפה (Placeholders):</strong> <span class="placeholder-list">${meta.placeholders}</span>
+                    </div>
                     <textarea class="form-control" id="${key}" name="${key}">${value}</textarea>
+                    <div class="warning">⚠️ אזהרה: ${meta.risk}</div>
                 `;
                 container.appendChild(div);
             }
