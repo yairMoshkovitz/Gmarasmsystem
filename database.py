@@ -97,10 +97,19 @@ def init_db():
         # Postgres doesn't like executescript, we use the cursor
         raw_conn = conn.conn
         cur = raw_conn.cursor()
-        # Basic split by semicolon
+        # Basic split by semicolon, removing comments
         for statement in schema.split(';'):
-            if statement.strip():
-                cur.execute(statement)
+            clean_statement = []
+            for line in statement.split('\n'):
+                if not line.strip().startswith('--'):
+                    clean_statement.append(line)
+            
+            stmt = '\n'.join(clean_statement).strip()
+            if stmt:
+                try:
+                    cur.execute(stmt)
+                except Exception as e:
+                    print(f"Warning: Failed to execute statement: {stmt[:50]}... Error: {e}")
         raw_conn.commit()
         cur.close()
     else:

@@ -7,6 +7,14 @@ from simulation_system import handle_unregistered_user, handle_registered_user
 
 app = Flask(__name__)
 
+# Initialize DB on startup (works for both local and gunicorn)
+from database import init_db, seed_tractates
+try:
+    init_db()
+    seed_tractates()
+except Exception as e:
+    print(f"⚠️ Database initialization warning: {e}")
+
 @app.route('/toggle_mode', methods=['GET', 'POST'])
 def toggle_mode():
     if request.method == 'POST':
@@ -68,7 +76,6 @@ def process_incoming_sms(phone, message):
         handle_registered_user(phone, user, message)
 
 if __name__ == '__main__':
-    # Initialize DB and other things if needed (already handled by other scripts usually)
     port = int(os.environ.get("PORT", 5000))
     print(f"Starting Web Simulation at http://0.0.0.0:{port}")
     app.run(host='0.0.0.0', port=port)
