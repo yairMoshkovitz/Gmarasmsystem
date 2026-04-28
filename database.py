@@ -269,7 +269,7 @@ def seed_tractates():
                 data = json.load(f)
         except: continue
         if not isinstance(data, dict) or "questions" not in data: continue
-        tractate_name = json_file.stem
+        tractate_name = json_file.stem.strip()
         if tractate_name in seen_names: continue
         seen_names.add(tractate_name)
         max_daf = 2

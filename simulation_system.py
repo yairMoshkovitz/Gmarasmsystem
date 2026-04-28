@@ -31,7 +31,7 @@ def handle_unregistered_user(phone, message):
                 end_f = start_f + 10.0
             rate, hour = float(parts[7]), int(parts[8])
             tractates = get_all_tractates()
-            tractate_id = next((t['id'] for t in tractates if t['name'] == tractate_name), None)
+            tractate_id = next((t['id'] for t in tractates if t['name'].strip() == tractate_name.strip()), None)
             if not tractate_id:
                 send_sms(phone, get_template("tractate_not_found", tractate=tractate_name))
                 return
@@ -39,6 +39,7 @@ def handle_unregistered_user(phone, message):
             subscribe(user_id, tractate_id, start_f, end_f, rate, hour)
             return
         except Exception as e:
+            print(f"DEBUG Error parsing: {e}")
             send_sms(phone, get_template("error_parsing_registration"))
             return
     send_sms(phone, get_template("unregistered_instructions"))
