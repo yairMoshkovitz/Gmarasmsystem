@@ -1,5 +1,9 @@
 import requests
 import xml.etree.ElementTree as ET
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 def get_incoming_sms(username, password):
     url = "https://api.inforu.co.il/SendMessageXml.ashx"
@@ -28,7 +32,6 @@ def get_incoming_sms(username, password):
         return None
 
 if __name__ == "__main__":
-    # Credentials from token.txt
-    USER = "hazarasms"
-    PASS = "3a45cda4-ff7e-4b99-91c8-d96e74cb872b"
+    USER = os.getenv("INFORU_USER")
+    PASS = os.getenv("INFORU_TOKEN")
     get_incoming_sms(USER, PASS)

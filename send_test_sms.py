@@ -1,9 +1,13 @@
 import requests
 import sys
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 def send_inforu_sms(phone, message):
-    # The token found in token.txt line 1
-    api_token = "3a45cda4-ff7e-4b99-91c8-d96e74cb872b"
+    api_token = os.getenv("INFORU_TOKEN")
+    api_user = os.getenv("INFORU_USER")
     
     url = "https://api.inforu.co.il/SendMessageXml.ashx"
     
@@ -13,7 +17,7 @@ def send_inforu_sms(phone, message):
     
     xml_payload = f"""<Inforu>
 <User>
-<Username>hazarasms</Username>
+<Username>{api_user}</Username>
 <ApiToken>{api_token}</ApiToken>
 </User>
 <Content Type="sms">
