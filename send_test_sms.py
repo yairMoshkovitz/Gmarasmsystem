@@ -8,6 +8,7 @@ load_dotenv()
 def send_inforu_sms(phone, message):
     api_token = os.getenv("INFORU_TOKEN")
     api_user = os.getenv("INFORU_USER")
+    sender_id = os.getenv("SENDER_ID", "HazarSms")
     
     url = "https://api.inforu.co.il/SendMessageXml.ashx"
     
@@ -27,7 +28,7 @@ def send_inforu_sms(phone, message):
 <PhoneNumber>{phone}</PhoneNumber>
 </Recipients>
 <Settings>
-<SenderName>HazarSms</SenderName>
+<SenderName>{sender_id}</SenderName>
 </Settings>
 </Inforu>"""
     
