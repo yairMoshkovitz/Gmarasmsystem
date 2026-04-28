@@ -2,6 +2,7 @@
 questions_engine.py - Question selection and formatting
 """
 import json
+import random
 from database import get_conn, daf_to_float, float_to_daf_str
 from registration import get_template
 
@@ -25,7 +26,8 @@ def get_daf_range_for_question(q: dict) -> tuple[float, float]:
 
 
 def select_questions_for_range(
-    questions: list, start_f: float, end_f: float, already_sent_ids: list
+    questions: list, start_f: float, end_f: float, already_sent_ids: list,
+    max_questions: int = 2
 ) -> list:
     """Filter questions that overlap with the given daf range and haven't been sent."""
     eligible = []
@@ -40,13 +42,8 @@ def select_questions_for_range(
         if max(start_f, q_start) <= min(end_f, q_end):
             eligible.append(q)
 
-    # Sort by proximity to start_f
-    def proximity(q):
-        s, _ = get_daf_range_for_question(q)
-        return abs(s - start_f)
-
-    eligible.sort(key=proximity)
-    return eligible
+    random.shuffle(eligible)
+    return eligible[:max_questions]
 
 
 def get_already_sent_ids(user_id: int, subscription_id: int) -> list[str]:
@@ -69,5 +66,5 @@ def format_question_sms(q: dict, index: int, tractate_name: str) -> str:
         "question_format",
         tractate=tractate_name,
         daf=daf_str,
-        question=q.get("question", "")
+        question=q.get("text") or q.get("question") or ""
     )

@@ -6,6 +6,7 @@ from database import get_conn
 from datetime import datetime
 import os
 import requests
+import sys
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -106,7 +107,9 @@ def send_sms(phone: str, message: str, user_id: int = None):
         print(f"\n{'='*width}")
         print(f"Target Phone: {phone}")
         print(f"{'-'*width}")
-        print(message)
+        # Try to print safely by replacing unencodable characters
+        safe_msg = message.encode(sys.stdout.encoding, errors='replace').decode(sys.stdout.encoding)
+        print(safe_msg)
         print(f"{'='*width}")
 
 

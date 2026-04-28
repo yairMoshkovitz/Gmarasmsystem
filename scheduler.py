@@ -74,15 +74,18 @@ def send_daily_questions(sub: dict):
         conn = get_conn()
         for i, q in enumerate(daily_selection):
             msg = format_question_sms(q, i + 1, sub["tractate_name"])
-            send_sms(sub["phone"], msg, sub["user_id"])
-            
             conn.execute(
                 "INSERT INTO sent_questions (user_id, subscription_id, question_id, question_text) VALUES (?, ?, ?, ?)",
-                (sub["user_id"], sub["id"], str(q.get("id")), q.get("question")),
+                (sub["user_id"], sub["id"], str(q.get("id")), q.get("text") or q.get("question") or ""),
             )
         conn.commit()
         conn.close()
-    
+        for i, q in enumerate(daily_selection):
+            msg = format_question_sms(q, i + 1, sub["tractate_name"])
+            send_sms(sub["phone"], msg, sub["user_id"])
+    else:
+        send_sms(sub["phone"], get_template("no_questions_today"), sub["user_id"])
+
     # Advance to next day
     advance_subscription(sub["id"], sub["dafim_per_day"])
     

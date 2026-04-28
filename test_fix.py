@@ -1,45 +1,67 @@
 from simulation_system import handle_unregistered_user, handle_registered_user
 from database import get_conn
 import os
+import json
 
 def test_full_flow():
     phone = "0541234567"
-    # Registration message
-    reg_message = 'הרשמה, משה, כהן, בני ברק, 25, שבת, כב ע"א עד ל ע"א, 1.5, 18'
+    
+    # Check what tractates we have
+    conn = get_conn()
+    tractates = conn.execute("SELECT id, name FROM tractates").fetchall()
+    
+    t_names = [t['name'] for t in tractates]
+    print(f"Available tractates: {t_names}")
+    
+    if not t_names:
+        print("No tractates found!")
+        conn.close()
+        return
+        
+    # Let's find "שבת" or just use the first one
+    t_name = t_names[0]
+    for name in t_names:
+        if "שבת" in name:
+            t_name = name
+            break
+            
+    # Registration message with the EXACT name from DB
+    reg_message = f'הרשמה, משה, כהן, בני ברק, 25, {t_name}, כב ע"א עד ל ע"א, 1.5, 18'
     
     print(f"Testing registration: {reg_message}")
     
     # Clean up
-    conn = get_conn()
     conn.execute("DELETE FROM sent_questions WHERE user_id IN (SELECT id FROM users WHERE phone=?)", (phone,))
     conn.execute("DELETE FROM subscriptions WHERE user_id IN (SELECT id FROM users WHERE phone=?)", (phone,))
     conn.execute("DELETE FROM users WHERE phone=?", (phone,))
     conn.commit()
-    conn.close()
     
     # 1. Register
     handle_unregistered_user(phone, reg_message)
     
     # Verify registration
-    conn = get_conn()
     user = conn.execute("SELECT * FROM users WHERE phone=?", (phone,)).fetchone()
     if not user:
         print("User NOT registered!")
+        conn.close()
         return
     
     print(f"User registered: {user['id']}")
     sub = conn.execute("SELECT * FROM subscriptions WHERE user_id=?", (user['id'],)).fetchone()
     if not sub:
         print("Subscription NOT created!")
-        tractates = conn.execute("SELECT name FROM tractates").fetchall()
-        print(f"Available tractates: {[t['name'] for t in tractates]}")
+        # Debug why subscribe() failed - let's check tractate id match
+        parts = [p.strip() for p in reg_message.split(',')]
+        tractate_name = parts[5]
+        tractate_id = next((t['id'] for t in tractates if t['name'].strip() == tractate_name.strip()), None)
+        print(f"DEBUG: Input tractate name: '{tractate_name}', Matched ID: {tractate_id}")
+        conn.close()
         return
     
     print(f"Subscription created: {sub['id']}")
     
     # 2. Simulate sending questions (using menu option 1)
     print("\nTesting option 1 (Send Questions):")
-    # Set live mode to true for simulation within scheduler
     from sms_service import set_live_mode
     set_live_mode(True)
     
