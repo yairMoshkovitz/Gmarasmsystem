@@ -103,6 +103,11 @@ def send_daily_questions(sub: dict):
 
 def run_hour(hour: int = None):
     """Main entry point for scheduled task."""
+    from sms_service import get_live_mode
+    if not get_live_mode():
+        print(f"⏸️ System in Simulation mode. Skipping scheduled tasks for hour {hour or datetime.now().hour}.")
+        return
+
     if hour is None:
         hour = datetime.now().hour
         

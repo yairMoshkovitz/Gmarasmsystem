@@ -33,6 +33,14 @@
     <div class="container">
         <h1 class="display-4">שלום, ברוכים הבאים למערכת!</h1>
         <p class="lead">ניהול ובקרה על מערכת לימוד הגמרא ב-SMS</p>
+        
+        <div class="mt-4 p-3 bg-white bg-opacity-25 rounded-pill d-inline-block border">
+            <div class="form-check form-switch d-flex align-items-center gap-3 px-5">
+                <label class="form-check-label fw-bold" for="liveModeSwitch">מצב חי (SMS אמיתי):</label>
+                <input class="form-check-input" type="checkbox" id="liveModeSwitch" style="width: 3em; height: 1.5em; cursor: pointer;">
+                <span id="modeStatusLabel" class="fw-bold">כבוי</span>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -89,6 +97,48 @@
 <footer class="text-center py-4 mt-5 text-muted">
     &copy; 2026 מערכת גמרא SMS - כל הזכויות שמורות
 </footer>
+
+<script>
+    const liveModeSwitch = document.getElementById('liveModeSwitch');
+    const modeStatusLabel = document.getElementById('modeStatusLabel');
+
+    async function updateModeUI() {
+        try {
+            const response = await fetch('/toggle_mode');
+            const data = await response.json();
+            liveModeSwitch.checked = data.live_mode;
+            modeStatusLabel.innerText = data.live_mode ? 'פעיל' : 'כבוי';
+            modeStatusLabel.style.color = data.live_mode ? '#2ecc71' : '#fff';
+        } catch (err) {
+            console.error('Error fetching mode:', err);
+        }
+    }
+
+    liveModeSwitch.onchange = async () => {
+        const enabled = liveModeSwitch.checked;
+        try {
+            const response = await fetch('/toggle_mode', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ enabled })
+            });
+            const data = await response.json();
+            modeStatusLabel.innerText = enabled ? 'פעיל' : 'כבוי';
+            modeStatusLabel.style.color = enabled ? '#2ecc71' : '#fff';
+            
+            if (enabled) {
+                alert('מערכת LIVE הופעלה! הודעות מתוזמנות יישלחו כעת למשתמשים אמיתיים.');
+            } else {
+                alert('מצב סימולציה הופעל. הודעות מתוזמנות מושבתות.');
+            }
+        } catch (err) {
+            console.error('Error toggling mode:', err);
+            liveModeSwitch.checked = !enabled;
+        }
+    };
+
+    window.onload = updateModeUI;
+</script>
 
 </body>
 </html>
