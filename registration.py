@@ -7,7 +7,7 @@ from datetime import datetime
 import json
 import os
 
-def get_template(template_name_pos, **kwargs):
+def get_template(template_name_pos=None, **kwargs):
     # Use a unique name for the first argument to avoid collisions with kwargs like 'name'
     template_name = kwargs.pop('template_name', template_name_pos)
     template_path = os.path.join(os.path.dirname(__file__), "sms_templates.json")
