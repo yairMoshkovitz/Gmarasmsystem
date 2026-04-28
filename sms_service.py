@@ -4,9 +4,69 @@ In production: replace send_sms() with Twilio/Vonage/etc. API call.
 """
 from database import get_conn
 from datetime import datetime
+import os
+import requests
+from dotenv import load_dotenv
 
+load_dotenv()
 
 INBOX: list[dict] = []  # Simulated incoming messages queue
+LIVE_MODE = False
+
+def set_live_mode(enabled: bool):
+    global LIVE_MODE
+    LIVE_MODE = enabled
+    print(f"SMS Service: Live Mode set to {LIVE_MODE}")
+
+def get_live_mode():
+    return LIVE_MODE
+
+def send_real_sms(phone: str, message: str):
+    """
+    Send a real SMS using Inforu API.
+    """
+    api_token = os.getenv("INFORU_TOKEN")
+    api_user = os.getenv("INFORU_USER")
+    sender_id = os.getenv("SENDER_ID", "HazarSms")
+    
+    if not api_token or not api_user:
+        print("❌ Error: INFORU_TOKEN or INFORU_USER not set in .env")
+        return False
+
+    url = "https://api.inforu.co.il/SendMessageXml.ashx"
+    
+    xml_payload = f"""<Inforu>
+<User>
+<Username>{api_user}</Username>
+<ApiToken>{api_token}</ApiToken>
+</User>
+<Content Type="sms">
+<Message>{message}</Message>
+</Content>
+<Recipients>
+<PhoneNumber>{phone}</PhoneNumber>
+</Recipients>
+<Settings>
+<SenderName>{sender_id}</SenderName>
+</Settings>
+</Inforu>"""
+    
+    headers = {
+        'Content-Type': 'application/x-www-form-urlencoded'
+    }
+
+    try:
+        response = requests.post(url, data={'InforuXML': xml_payload}, headers=headers)
+        print(f"Inforu Response Status: {response.status_code}")
+        if "Status=\"1\"" in response.text:
+            print(f"✅ SMS sent successfully to {phone}")
+            return True
+        else:
+            print(f"❌ SMS sending failed: {response.text}")
+            return False
+    except Exception as e:
+        print(f"❌ Error sending SMS via Inforu: {e}")
+        return False
 
 def reverse_hebrew_line(line: str) -> str:
     """
@@ -28,8 +88,7 @@ def reverse_hebrew_line(line: str) -> str:
 
 def send_sms(phone: str, message: str, user_id: int = None):
     """
-    Simulate sending an SMS.
-    In production, replace body with real SMS API call.
+    Send an SMS (Simulated or Real based on LIVE_MODE).
     """
     conn = get_conn()
     conn.execute(
@@ -38,6 +97,9 @@ def send_sms(phone: str, message: str, user_id: int = None):
     )
     conn.commit()
     conn.close()
+
+    if LIVE_MODE:
+        send_real_sms(phone, message)
 
     # Console simulation
     # To truly simulate a right-aligned Hebrew experience in a standard LTR terminal:

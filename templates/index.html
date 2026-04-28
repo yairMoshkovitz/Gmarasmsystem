@@ -26,8 +26,59 @@
             background: #fff;
             border-bottom: 1px solid #ddd;
             display: flex;
-            gap: 10px;
+            gap: 15px;
             align-items: center;
+            flex-wrap: wrap;
+        }
+        .mode-toggle {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            margin-right: auto;
+            background: #f0f0f0;
+            padding: 5px 10px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+        }
+        /* Switch styling */
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 40px;
+            height: 20px;
+        }
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            transition: .4s;
+            border-radius: 20px;
+        }
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 14px;
+            width: 14px;
+            left: 3px;
+            bottom: 3px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+        input:checked + .slider {
+            background-color: #075e54;
+        }
+        input:checked + .slider:before {
+            transform: translateX(20px);
         }
         #chat-container {
             flex: 1;
@@ -92,9 +143,20 @@
     <header>סימולטור Gemara SMS</header>
     
     <div id="setup">
-        <label for="phone">מספר טלפון:</label>
-        <input type="text" id="phone" placeholder="למשל 0501234567" value="0501234567">
-        <button onclick="loadHistory()">התחבר</button>
+        <div style="display: flex; gap: 10px; align-items: center;">
+            <label for="phone">מספר טלפון:</label>
+            <input type="text" id="phone" placeholder="למשל 0501234567" value="0501234567">
+            <button onclick="loadHistory()">התחבר</button>
+        </div>
+        
+        <div class="mode-toggle">
+            <span>מצב חי (SMS אמיתי):</span>
+            <label class="switch">
+                <input type="checkbox" id="live-mode-checkbox" onchange="toggleLiveMode()">
+                <span class="slider"></span>
+            </label>
+            <span id="mode-status" style="font-weight: bold; color: #888;">כבוי</span>
+        </div>
     </div>
 
     <div id="chat-container">
@@ -110,6 +172,38 @@
         const chatContainer = document.getElementById('chat-container');
         const phoneInput = document.getElementById('phone');
         const msgInput = document.getElementById('msg-input');
+        const liveModeCheckbox = document.getElementById('live-mode-checkbox');
+        const modeStatus = document.getElementById('mode-status');
+
+        async function updateModeUI() {
+            try {
+                const response = await fetch('/toggle_mode');
+                const data = await response.json();
+                liveModeCheckbox.checked = data.live_mode;
+                modeStatus.innerText = data.live_mode ? 'פעיל' : 'כבוי';
+                modeStatus.style.color = data.live_mode ? '#075e54' : '#888';
+            } catch (err) {
+                console.error('Error fetching mode:', err);
+            }
+        }
+
+        async function toggleLiveMode() {
+            const enabled = liveModeCheckbox.checked;
+            try {
+                const response = await fetch('/toggle_mode', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ enabled })
+                });
+                const data = await response.json();
+                modeStatus.innerText = enabled ? 'פעיל' : 'כבוי';
+                modeStatus.style.color = enabled ? '#075e54' : '#888';
+                alert(enabled ? 'מצב SMS חי הופעל! הודעות יישלחו כעת למכשירים אמיתיים.' : 'מצב סימולציה הופעל. הודעות לא יישלחו באמת.');
+            } catch (err) {
+                console.error('Error toggling mode:', err);
+                liveModeCheckbox.checked = !enabled; // revert
+            }
+        }
 
         function handleKeyPress(e) {
             if (e.key === 'Enter') {
@@ -180,7 +274,10 @@
         }
 
         // Initial load
-        window.onload = loadHistory;
+        window.onload = () => {
+            loadHistory();
+            updateModeUI();
+        };
     </script>
 </body>
 </html>
