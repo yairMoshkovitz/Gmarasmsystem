@@ -11,12 +11,22 @@ from questions_engine import (
 )
 from registration import get_template
 
+def has_sent_today(user_id: int, sub_id: int) -> bool:
+    """Check if questions were already sent to this user today."""
+    conn = get_conn()
+    today_start = date.today().isoformat() + "T00:00:00"
+    row = conn.execute(
+        "SELECT id FROM sent_questions WHERE user_id=? AND subscription_id=? AND sent_at >= ? LIMIT 1",
+        (user_id, sub_id, today_start)
+    ).fetchone()
+    conn.close()
+    return row is not None
+
 def get_due_subscriptions(current_hour: int) -> list:
     """Find active subscriptions that should get questions now."""
     conn = get_conn()
     today = date.today().isoformat()
     
-    # Filter out paused subscriptions
     rows = conn.execute(
         """
         SELECT s.*, t.name as tractate_name, u.phone, u.name as user_name
@@ -45,10 +55,14 @@ def advance_subscription(sub_id: int, dafim_per_day: float):
 
 def send_daily_questions(sub: dict):
     """Select and send questions for a single subscription."""
+    # Safety check: don't send twice in the same calendar day
+    if has_sent_today(sub["user_id"], sub["id"]):
+        print(f"Skipping sub {sub['id']} - already sent today.")
+        return
+
     questions = load_questions(sub["tractate_id"])
     already_sent = get_already_sent_ids(sub["user_id"], sub["id"])
     
-    # We send questions for the current_daf (e.g. 2.0 to 2.49 for one daf)
     start_f = sub["current_daf"]
     end_f = start_f + sub["dafim_per_day"] - 0.01
     
@@ -62,7 +76,6 @@ def send_daily_questions(sub: dict):
             msg = format_question_sms(q, i + 1, sub["tractate_name"])
             send_sms(sub["phone"], msg, sub["user_id"])
             
-            # Log sent question
             conn.execute(
                 """
                 INSERT INTO sent_questions (user_id, subscription_id, question_id, question_text)
@@ -78,7 +91,7 @@ def send_daily_questions(sub: dict):
     
     # Send "Tomorrow's Study" message
     next_start = start_f + sub["dafim_per_day"]
-    next_end = next_start + sub["dafim_per_day"] - 0.5 # Showing 1 daf or relevant range
+    next_end = next_start + sub["dafim_per_day"] - 0.5
     
     study_range = f"{float_to_daf_str(next_start)}"
     if sub["dafim_per_day"] > 0.5:

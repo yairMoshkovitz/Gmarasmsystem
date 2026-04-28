@@ -1,19 +1,43 @@
 from flask import Flask, render_template, request, jsonify
 import os
 import json
+import threading
+import time
+from datetime import datetime
 from database import get_conn
 from sms_service import get_sms_history, receive_sms, set_live_mode, get_live_mode
 from simulation_system import handle_unregistered_user, handle_registered_user
+from scheduler import run_hour
 
 app = Flask(__name__)
 
-# Initialize DB on startup (works for both local and gunicorn)
+# Initialize DB on startup
 from database import init_db, seed_tractates
 try:
     init_db()
     seed_tractates()
 except Exception as e:
     print(f"⚠️ Database initialization warning: {e}")
+
+# Background scheduler thread
+def start_background_scheduler():
+    def scheduler_loop():
+        print("🚀 Background Scheduler Started.")
+        last_hour = -1
+        while True:
+            now = datetime.now()
+            if now.hour != last_hour:
+                print(f"🕒 Scheduler checking for hour {now.hour}...")
+                run_hour(now.hour)
+                last_hour = now.hour
+            time.sleep(60)
+    
+    thread = threading.Thread(target=scheduler_loop, daemon=True)
+    thread.start()
+
+# Start scheduler on startup
+if os.environ.get('WERKZEUG_RUN_MAIN') == 'true' or not app.debug:
+    start_background_scheduler()
 
 @app.route('/toggle_mode', methods=['GET', 'POST'])
 def toggle_mode():
@@ -61,35 +85,25 @@ def send():
     data = request.json
     phone = data.get('phone')
     message = data.get('message')
-    
     if not phone or not message:
         return jsonify({"error": "Missing phone or message"}), 400
-    
     process_incoming_sms(phone, message)
     return jsonify({"status": "ok"})
 
 @app.route('/webhook/inforu', methods=['GET', 'POST'])
 def inforu_webhook():
-    # Inforu typically sends via GET or POST parameters
-    # The common parameters are 'Phone' and 'Text'
     phone = request.args.get('Phone') or request.form.get('Phone') or request.args.get('from')
     message = request.args.get('Text') or request.form.get('Text') or request.args.get('message')
-    
     if phone and message:
         process_incoming_sms(phone, message)
         return "OK", 200
-    
     return "No data", 400
 
 def process_incoming_sms(phone, message):
-    # 1. Log the incoming message (System receiving it)
     receive_sms(phone, message)
-    
-    # 2. Process logic (identical to simulation_system.py)
     conn = get_conn()
     user = conn.execute("SELECT * FROM users WHERE phone=?", (phone,)).fetchone()
     conn.close()
-    
     if not user:
         handle_unregistered_user(phone, message)
     else:
