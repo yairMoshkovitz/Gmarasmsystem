@@ -1,117 +1,73 @@
 """
-questions_engine.py - Selects relevant questions based on current daf position
+questions_engine.py - Question selection and formatting
 """
-from database import get_conn, load_questions, daf_to_float
-import random
-
+import json
+from database import get_conn, daf_to_float, float_to_daf_str
+from registration import get_template
 
 def get_daf_range_for_question(q: dict) -> tuple[float, float]:
-    """
-    Parse the daf range a question covers.
-    Returns (start_float, end_float).
-    """
-    daf_info = q.get("daf") or {}
+    """Extract start and end daf as floats from a question dict."""
+    daf_info = q.get("daf")
     if not daf_info:
-        return (2.0, 2.0)
+        return (0.0, 0.0)
 
     if isinstance(daf_info, dict):
-        # Check if it has from/to structure
-        if "from" in daf_info and "to" in daf_info:
-            frm = daf_info["from"]
-            to = daf_info["to"]
-            start = daf_to_float(frm.get("daf", 2), frm.get("amud"))
-            end = daf_to_float(to.get("daf", 2), to.get("amud"))
-            return (start, end)
-        else:
-            # Single daf
-            d = daf_info.get("daf", 2)
-            amud = daf_info.get("amud")
-            val = daf_to_float(d, amud)
-            # If no amud, covers both sides
-            if amud is None:
-                return (val, val + 0.5)
-            return (val, val)
-    return (2.0, 2.0)
+        start_info = daf_info.get("from") or daf_info
+        end_info = daf_info.get("to") or daf_info
+        
+        start_val = daf_to_float(start_info.get("daf"), start_info.get("amud"))
+        end_val = daf_to_float(end_info.get("daf"), end_info.get("amud"))
+        return (start_val, end_val)
+    elif isinstance(daf_info, str):
+        val = daf_to_float(daf_info)
+        return (val, val)
+    return (0.0, 0.0)
 
 
 def select_questions_for_range(
-    tractate_id: int,
-    current_daf: float,
-    dafim_per_day: float,
-    count: int = 2,
-    already_sent: list[str] = None,
-) -> list[dict]:
-    """
-    Select `count` questions that fall within today's learning range.
-
-    Range = [current_daf, current_daf + dafim_per_day)
-    Prefers questions not yet sent; falls back to any in range.
-    """
-    all_questions = load_questions(tractate_id)
-    if not all_questions:
-        return []
-
-    already_sent = set(already_sent or [])
-    end_daf = current_daf + dafim_per_day
-
-    # Filter questions that overlap with today's range
-    in_range = []
-    for q in all_questions:
+    questions: list, start_f: float, end_f: float, already_sent_ids: list
+) -> list:
+    """Filter questions that overlap with the given daf range and haven't been sent."""
+    eligible = []
+    for q in questions:
+        q_id = str(q.get("id"))
+        if q_id in already_sent_ids:
+            continue
+            
         q_start, q_end = get_daf_range_for_question(q)
-        # Overlap: question starts before our end AND question ends after our start
-        if q_start < end_daf and q_end >= current_daf:
-            in_range.append(q)
+        
+        # Overlap check: [start_f, end_f] overlaps [q_start, q_end]
+        if max(start_f, q_start) <= min(end_f, q_end):
+            eligible.append(q)
 
-    if not in_range:
-        # Fallback: questions closest to current position
-        def proximity(q):
-            s, e = get_daf_range_for_question(q)
-            return abs(s - current_daf)
-        in_range = sorted(all_questions, key=proximity)[:max(count * 3, 6)]
+    # Sort by proximity to start_f
+    def proximity(q):
+        s, _ = get_daf_range_for_question(q)
+        return abs(s - start_f)
 
-    # Prefer unsent questions
-    unsent = [q for q in in_range if q["id"] not in already_sent]
-    pool = unsent if len(unsent) >= count else in_range
-
-    # Random sample
-    if len(pool) <= count:
-        return pool
-    return random.sample(pool, count)
+    eligible.sort(key=proximity)
+    return eligible
 
 
 def get_already_sent_ids(user_id: int, subscription_id: int) -> list[str]:
-    """Return question IDs already sent to this user for this subscription."""
+    """Get list of question IDs already sent to this subscription."""
     conn = get_conn()
     rows = conn.execute(
         "SELECT question_id FROM sent_questions WHERE user_id=? AND subscription_id=?",
-        (user_id, subscription_id),
+        (user_id, subscription_id)
     ).fetchall()
     conn.close()
-    return [r["question_id"] for r in rows]
+    return [str(row["question_id"]) for row in rows]
 
 
 def format_question_sms(q: dict, index: int, tractate_name: str) -> str:
-    """Format a question as an SMS message."""
-    daf_info = q.get("daf") or {}
-    daf_str = ""
-    if isinstance(daf_info, dict):
-        if "from" in daf_info:
-            frm = daf_info["from"]
-            to = daf_info.get("to", frm)
-            daf_str = f"(דף {frm.get('daf','')} - דף {to.get('daf','')})"
-        elif daf_info.get("daf"):
-            amud = daf_info.get("amud", "")
-            amud_str = f" עמ' {amud}" if amud else ""
-            daf_str = f"(דף {daf_info['daf']}{amud_str})"
-
-    header = f"📚 {tractate_name} {daf_str}\nשאלה {index}:"
-    message = f"{header}\n{q['text']}"
+    """Format a question into an SMS message using template."""
+    q_start, _ = get_daf_range_for_question(q)
+    daf_str = float_to_daf_str(q_start)
     
-    # Cost saving: Clean up English characters and excessive whitespace
-    # We want "Hebrew only" content for the SMS body as requested.
-    # Keep numbers, Hebrew, and basic punctuation.
-    cleaned_message = "".join([c for c in message if not ('a' <= c.lower() <= 'z')])
-    # Remove multiple spaces
-    cleaned_message = " ".join(cleaned_message.split())
-    
-    return cleaned_message
+    return get_template(
+        "question_format",
+        tractate=tractate_name,
+        daf=daf_str,
+        question=q.get("question", "")
+    )

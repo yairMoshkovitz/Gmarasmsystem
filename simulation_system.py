@@ -1,43 +1,46 @@
 """
-simulation_system.py - סימולציה של המערכת בתור בוט SMS
+simulation_system.py - SMS bot simulation with numeric menu and states
 """
 import os
 import sys
-from registration import register_user, subscribe, get_all_tractates, get_user_subscriptions
+from datetime import datetime, timedelta
+from registration import register_user, subscribe, get_all_tractates, get_user_subscriptions, get_template
 from scheduler import send_daily_questions
-from database import get_conn, float_to_daf_str
+from database import get_conn, float_to_daf_str, daf_to_float
 from sms_service import get_sms_history, send_sms, receive_sms
+
+# Global state to track multi-step conversations
+# Format: { phone: { "state": "AWAITING_DAF", "data": {...} } }
+USER_STATES = {}
 
 def clear_screen():
     os.system('cls' if os.name == 'nt' else 'clear')
 
 def handle_unregistered_user(phone, message):
-    # הפורמט יכול להיות:
-    # 7 איברים: הרשמה, שם, מסכת, דף התחלה, דף סיום, קצב, שעה
-    # 9 איברים: הרשמה, שם, מסכת, דף התחלה, עמוד התחלה, דף סיום, עמוד סיום, קצב, שעה
+    # Format: הרשמה, שם, שם משפחה, עיר, גיל, מסכת, דף ע"א עד דף ע"ב, קצב, שעה
     parts = [p.strip() for p in message.split(',')]
     
-    if len(parts) > 0 and parts[0] == "הרשמה" and (len(parts) == 7 or len(parts) == 9):
+    if len(parts) >= 9 and parts[0] == "הרשמה":
         try:
             name = parts[1]
-            tractate_name = parts[2]
+            last_name = parts[2]
+            city = parts[3]
+            age = int(parts[4])
+            tractate_name = parts[5]
             
-            if len(parts) == 7:
-                start_daf = int(parts[3])
-                start_amud = 'א'
-                end_daf = int(parts[4])
-                end_amud = 'ב'
-                rate = float(parts[5])
-                hour = int(parts[6])
+            # Parse range: "ב ע"א עד קכג ע"ב"
+            range_part = parts[6]
+            if " עד " in range_part:
+                start_str, end_str = range_part.split(" עד ")
+                start_f = daf_to_float(start_str)
+                end_f = daf_to_float(end_str)
             else:
-                start_daf = int(parts[3])
-                start_amud = parts[4]
-                end_daf = int(parts[5])
-                end_amud = parts[6]
-                rate = float(parts[7])
-                hour = int(parts[8])
+                start_f = daf_to_float(range_part)
+                end_f = start_f + 10.0 # Default range if "עד" is missing
                 
-            # למצוא מזהה מסכת
+            rate = float(parts[7])
+            hour = int(parts[8])
+                
             tractates = get_all_tractates()
             tractate_id = None
             for t in tractates:
@@ -46,86 +49,110 @@ def handle_unregistered_user(phone, message):
                     break
                     
             if not tractate_id:
-                send_sms(phone, f"המסכת '{tractate_name}' לא נמצאה במערכת.")
+                send_sms(phone, get_template("tractate_not_found", tractate=tractate_name))
                 return
                 
-            user_id = register_user(phone, name)
-            sub_id = subscribe(user_id, tractate_id, start_daf, start_amud, end_daf, end_amud, rate, hour)
-            # הודעת ההצלחה כבר נשלחת מתוך register_user ו-subscribe
+            user_id = register_user(phone, name, last_name, city, age)
+            subscribe(user_id, tractate_id, start_f, end_f, rate, hour)
             return
             
-        except ValueError:
-            send_sms(phone, "שגיאה בפענוח הנתונים. אנא ודא שהכנסת מספרים היכן שנדרש.")
+        except Exception as e:
+            print(f"Parsing error: {e}")
+            send_sms(phone, get_template("error_parsing_registration"))
             return
 
-    # אם לא תקין או שההודעה אחרת, נשלח הוראות
-    instructions = (
-        "שלום! אינך רשום במערכת.\n"
-        "כדי להירשם שלח הודעה בפורמט הבא (עם פסיקים):\n"
-        "הרשמה, שם, מסכת, דף התחלה, דף סיום, קצב דפים ביום, שעה מועדפת\n"
-        "לדוגמה: הרשמה, משה, ברכות, 2, 10, 1, 18\n"
-        "*(למתקדמים: ניתן להוסיף עמוד א/ב אחרי כל דף)*"
-    )
+    instructions = get_template("unregistered_instructions")
     send_sms(phone, instructions)
 
 def handle_registered_user(phone, user, message):
+    state_info = USER_STATES.get(phone)
+    
+    # Handle active states first
+    if state_info:
+        if state_info["state"] == "AWAITING_UPDATE_DAF":
+            try:
+                new_daf_f = daf_to_float(message)
+                conn = get_conn()
+                conn.execute("UPDATE subscriptions SET current_daf=? WHERE user_id=? AND is_active=1", (new_daf_f, user["id"]))
+                conn.commit()
+                conn.close()
+                send_sms(phone, get_template("update_daf_success", daf=float_to_daf_str(new_daf_f)))
+                del USER_STATES[phone]
+            except:
+                send_sms(phone, "פורמט דף לא תקין. נסה שוב (למשל: כ ע\"ב) או שלח 'ביטול'.")
+            return
+            
+        if state_info["state"] == "AWAITING_PAUSE_DAYS":
+            if message.isdigit():
+                days = int(message)
+                until_date = (datetime.now() + timedelta(days=days)).date()
+                conn = get_conn()
+                conn.execute("UPDATE subscriptions SET pause_until=? WHERE user_id=? AND is_active=1", (until_date.isoformat(), user["id"]))
+                conn.commit()
+                conn.close()
+                send_sms(phone, get_template("pause_success", days=days, date=until_date.strftime("%d/%m/%Y")))
+                del USER_STATES[phone]
+            else:
+                send_sms(phone, "אנא שלח מספר ימים (ספרות בלבד).")
+            return
+
+    # Handle numeric menu
     if message == '1':
         subs = get_user_subscriptions(user['id'])
         if not subs:
-            send_sms(phone, "אין לך מנויים פעילים לקבלת שאלות.")
+            send_sms(phone, "אין לך מנויים פעילים.")
         else:
             for s in subs:
-                print(f"\nמפעיל שליחה עבור מסכת {s['tractate_name']}...")
                 send_daily_questions(s)
     elif message == '2':
-        send_sms(phone, "התנתקת בהצלחה (סימולציה של יציאה מהבוט).")
-        return "exit"
+        USER_STATES[phone] = {"state": "AWAITING_UPDATE_DAF"}
+        send_sms(phone, get_template("ask_update_daf"))
     elif message == '3':
-        instructions = (
-            "להרשמה למסכת נוספת, שלח הודעה בפורמט:\n"
-            "הרשמה, שם, מסכת, דף התחלה, דף סיום, קצב, שעה\n"
-            "לדוגמה: הרשמה, משה, שבת, 2, 10, 1, 18"
-        )
-        send_sms(phone, instructions)
-    elif message.startswith("הרשמה"):
-        # ננסה לרשום אותו לעוד מסכת (כמו אצל משתמש חדש)
-        # מכיוון ש-handle_unregistered_user מטפל גם בחיפוש שם, אפשר לקרוא לו או לממש מחדש,
-        # אבל register_user כבר תומך במשתמש קיים (הוא פשוט מחזיר את ה-ID הקיים ולא מוסיף חדש).
-        handle_unregistered_user(phone, message)
+        USER_STATES[phone] = {"state": "AWAITING_PAUSE_DAYS"}
+        send_sms(phone, get_template("ask_pause_days"))
+    elif message == '4':
+        conn = get_conn()
+        conn.execute("UPDATE subscriptions SET pause_until=NULL WHERE user_id=? AND is_active=1", (user["id"],))
+        conn.commit()
+        conn.close()
+        send_sms(phone, get_template("resume_success"))
+    elif message == '5':
+        send_sms(phone, get_template("unregistered_instructions"))
+    elif message.lower() in ["כן", "לא", "ידעתי", "לא ידעתי"]:
+        # Log response to the last sent question
+        conn = get_conn()
+        last_q = conn.execute(
+            "SELECT id FROM sent_questions WHERE user_id=? ORDER BY sent_at DESC LIMIT 1",
+            (user["id"],)
+        ).fetchone()
+        if last_q:
+            conn.execute(
+                "UPDATE sent_questions SET responded_at=?, response_text=? WHERE id=?",
+                (datetime.now().isoformat(), message, last_q["id"])
+            )
+            conn.commit()
+            send_sms(phone, "קיבלתי, תודה!")
+        conn.close()
     else:
-        # הודעה כללית (תפריט)
-        menu = (
-            f"שלום {user['name']}, בחר אפשרות:\n"
-            "1. קבלת שאלה יומית עכשיו\n"
-            "2. יציאה מהמערכת (החלפת מספר)\n"
-            "3. הרשמה למסכת נוספת\n"
-            "(או שלח הודעת הרשמה מלאה)"
-        )
+        menu = get_template("main_menu", name=user["name"])
         send_sms(phone, menu)
-    return None
 
 def main():
     clear_screen()
-    print("=== מערכת סימולציה Gemara SMS ===")
+    print("=== Gemara SMS Simulation (Updated) ===")
     
-    phone = input("הכנס מספר טלפון זמני לסשן (למשל 0501234567): ").strip()
-    if not phone:
-        print("לא הוזן מספר. יציאה.")
-        return
+    phone = input("Enter phone number: ").strip()
+    if not phone: return
 
     while True:
         try:
-            print(f"\n--- סשן פעיל: {phone} ---")
-            message = input("הכנס הודעת SMS נכנסת (או q ליציאה): ").strip()
-            if message.lower() == 'q':
-                break
-            if not message:
-                continue
+            print(f"\n--- Session: {phone} ---")
+            message = input("SMS Message (or 'q' to quit): ").strip()
+            if message.lower() == 'q': break
+            if not message: continue
                 
-            # Log the incoming message
             receive_sms(phone, message)
             
-            # Check if user exists
             conn = get_conn()
             user = conn.execute("SELECT * FROM users WHERE phone=?", (phone,)).fetchone()
             conn.close()
@@ -133,14 +160,10 @@ def main():
             if not user:
                 handle_unregistered_user(phone, message)
             else:
-                res = handle_registered_user(phone, user, message)
-                if res == "exit":
-                    phone = input("\nהכנס מספר טלפון זמני חדש (או q ליציאה): ").strip()
-                    if phone.lower() == 'q' or not phone:
-                        break
+                handle_registered_user(phone, user, message)
 
-        except EOFError:
-            break
+        except EOFError: break
+        except Exception as e: print(f"Error: {e}")
 
 if __name__ == "__main__":
     main()

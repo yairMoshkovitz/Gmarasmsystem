@@ -32,8 +32,6 @@ class PostgresRow:
         return self.data.items()
 
     def __iter__(self):
-        # In sqlite3.Row, iterating returns the keys, but I'll stick to values for now
-        # Actually, let's match sqlite3.Row behavior: iteration returns values
         return iter(self.values)
 
     def __len__(self):
@@ -62,7 +60,6 @@ class PostgresCursorWrapper:
         return [PostgresRow(colnames, row) for row in rows]
 
     def __iter__(self):
-        # For SQLite compatibility in loops
         rows = self.fetchall()
         return iter(rows)
 
@@ -72,30 +69,21 @@ class PostgresConnWrapper:
         self.conn = conn
 
     def execute(self, query, params=None):
-        # Handle last_insert_rowid()
         if "last_insert_rowid()" in query:
-            # We assume it's called right after an insert.
-            # In Postgres, we should have used RETURNING id, but to keep it simple
-            # we'll try to find the last val. This is NOT thread-safe but ok for this scale.
-            # Better: the caller should be updated, but let's try to shim it.
             cur = self.conn.cursor()
-            # This is a hacky shim for the specific uses in the code
             if "users" in self._last_table:
                  cur.execute(f"SELECT id FROM {self._last_table} ORDER BY id DESC LIMIT 1")
             elif "subscriptions" in self._last_table:
                  cur.execute(f"SELECT id FROM {self._last_table} ORDER BY id DESC LIMIT 1")
             return PostgresCursorWrapper(cur)
 
-        # Convert SQLite '?' to Postgres '%s'
         query = query.replace('?', '%s')
         
-        # Track last table for last_insert_rowid shim
         if "INSERT INTO" in query.upper():
             match = re.search(r"INSERT INTO (\w+)", query, re.IGNORECASE)
             if match:
                 self._last_table = match.group(1)
 
-        # Convert INSERT OR REPLACE to INSERT ... ON CONFLICT
         if "INSERT OR REPLACE" in query.upper():
             query = query.replace("INSERT OR REPLACE", "INSERT")
             if "tractates" in query:
@@ -129,7 +117,6 @@ class PostgresConnWrapper:
 def get_conn():
     if DATABASE_URL:
         import psycopg2
-        # Handle the postgres:// vs postgresql:// issue automatically
         url = DATABASE_URL
         if url.startswith("postgres://"):
             url = url.replace("postgres://", "postgresql://", 1)
@@ -145,18 +132,51 @@ def get_conn():
 def init_db():
     """Initialize the database schema."""
     conn = get_conn()
+    
+    # Check if we need to migrate existing tables
+    try:
+        if DATABASE_URL:
+            cur = conn.conn.cursor()
+            cur.execute("SELECT column_name FROM information_schema.columns WHERE table_name='users' AND column_name='last_name'")
+            if not cur.fetchone():
+                print("Migrating users table (Postgres)...")
+                cur.execute("ALTER TABLE users ADD COLUMN last_name TEXT, ADD COLUMN city TEXT, ADD COLUMN age INTEGER")
+            
+            cur.execute("SELECT column_name FROM information_schema.columns WHERE table_name='subscriptions' AND column_name='pause_until'")
+            if not cur.fetchone():
+                print("Migrating subscriptions table (Postgres)...")
+                cur.execute("ALTER TABLE subscriptions ADD COLUMN pause_until DATE")
+            conn.conn.commit()
+            cur.close()
+        else:
+            cur = conn.cursor()
+            # SQLite migration
+            cur.execute("PRAGMA table_info(users)")
+            cols = [row[1] for row in cur.fetchall()]
+            if 'last_name' not in cols:
+                print("Migrating users table (SQLite)...")
+                conn.execute("ALTER TABLE users ADD COLUMN last_name TEXT")
+                conn.execute("ALTER TABLE users ADD COLUMN city TEXT")
+                conn.execute("ALTER TABLE users ADD COLUMN age INTEGER")
+            
+            cur.execute("PRAGMA table_info(subscriptions)")
+            cols = [row[1] for row in cur.fetchall()]
+            if 'pause_until' not in cols:
+                print("Migrating subscriptions table (SQLite)...")
+                conn.execute("ALTER TABLE subscriptions ADD COLUMN pause_until DATE")
+            conn.commit()
+    except Exception as e:
+        print(f"Migration notice: {e}")
+
     with open(SCHEMA_PATH, "r", encoding="utf-8") as f:
         schema = f.read()
 
     if DATABASE_URL:
-        # Convert SQLite schema to Postgres compatible
         schema = schema.replace("INTEGER PRIMARY KEY AUTOINCREMENT", "SERIAL PRIMARY KEY")
         schema = schema.replace("REAL", "DOUBLE PRECISION")
         
-        # Postgres doesn't like executescript, we use the cursor
         raw_conn = conn.conn
         cur = raw_conn.cursor()
-        # Basic split by semicolon, removing comments
         for statement in schema.split(';'):
             clean_statement = []
             for line in statement.split('\n'):
@@ -168,7 +188,7 @@ def init_db():
                 try:
                     cur.execute(stmt)
                 except Exception as e:
-                    print(f"Warning: Failed to execute statement: {stmt[:50]}... Error: {e}")
+                    pass
         raw_conn.commit()
         cur.close()
     else:
@@ -176,140 +196,132 @@ def init_db():
         conn.commit()
     conn.close()
     try:
-        print("✅ Database initialized.")
+        print("✅ Database initialized and migrated.")
     except UnicodeEncodeError:
-        print("Database initialized.")
+        print("Database initialized and migrated.")
+
+
+def int_to_gimatriya(n):
+    """Convert integer to Hebrew gimatriya string."""
+    if n <= 0: return ""
+    units = ["", "א", "ב", "ג", "ד", "ה", "ו", "ז", "ח", "ט"]
+    tens = ["", "י", "כ", "ל", "מ", "נ", "ס", "ע", "פ", "צ"]
+    hundreds = ["", "ק", "ר", "ש", "ת"]
+    
+    if n == 15: return "טו"
+    if n == 16: return "טז"
+    
+    res = ""
+    h = n // 100
+    while h > 4:
+        res += "ת"
+        h -= 4
+    res += hundreds[h]
+    
+    rem = n % 100
+    if rem == 15: res += "טו"
+    elif rem == 16: res += "טז"
+    else:
+        res += tens[rem // 10]
+        res += units[rem % 10]
+    return res
+
+
+def gimatriya_to_int(s):
+    """Convert Hebrew gimatriya string to integer."""
+    hebrew_to_num = {
+        "א": 1, "ב": 2, "ג": 3, "ד": 4, "ה": 5, "ו": 6, "ז": 7, "ח": 8, "ט": 9, "י": 10,
+        "כ": 20, "ל": 30, "מ": 40, "נ": 50, "ס": 60, "ע": 70, "פ": 80, "צ": 90, "ק": 100,
+        "ר": 200, "ש": 300, "ת": 400
+    }
+    s = s.replace("'", "").replace('"', "").replace(" ", "")
+    total = 0
+    for char in s:
+        total += hebrew_to_num.get(char, 0)
+    return total
+
 
 def extract_daf_number(val):
-    if val is None:
-        return 2
-    if isinstance(val, (int, float)):
-        return int(val)
+    if val is None: return 2
+    if isinstance(val, (int, float)): return int(val)
     if isinstance(val, str):
-        # Handle Hebrew letters (basic mapping)
-        hebrew_to_num = {
-            "א": 1, "ב": 2, "ג": 3, "ד": 4, "ה": 5, "ו": 6, "ז": 7, "ח": 8, "ט": 9, "י": 10,
-            "כ": 20, "ל": 30, "מ": 40, "נ": 50, "ס": 60, "ע": 70, "פ": 80, "צ": 90, "ק": 100,
-            "ר": 200, "ש": 300, "ת": 400
-        }
-        
-        # Check if it's a Hebrew representation
-        clean_val = val.strip().replace("'", "").replace('"', "")
-        if all(c in hebrew_to_num or c.isspace() for c in clean_val) and clean_val:
-            total = 0
-            for char in clean_val:
-                total += hebrew_to_num.get(char, 0)
-            if total > 0:
-                return total
-
-        # Extract digits from string like "דף 63" or "ב: 9"
+        s = val.strip().replace("'", "").replace('"', "")
+        if s.isdigit(): return int(s)
+        # Try gimatriya
+        num = gimatriya_to_int(s)
+        if num > 0: return num
+        # Fallback to digit search
         match = re.search(r'(\d+)', val)
-        if match:
-            return int(match.group(1))
+        if match: return int(match.group(1))
     return 2
 
 
 def seed_tractates():
     """Register tractates from JSON files in data/ directory."""
     conn = get_conn()
-    if not DATA_DIR.exists():
-        DATA_DIR.mkdir(parents=True)
-        try:
-            print(f"📁 Created data directory: {DATA_DIR}")
-        except UnicodeEncodeError:
-            print(f"Created data directory: {DATA_DIR}")
-
-    registered = 0
-    # Also check the root directory for .json files that are tractates
     json_files = list(DATA_DIR.glob("*.json")) + list(Path(__file__).parent.glob("*.json"))
-    
     seen_names = set()
     for json_file in json_files:
-        if json_file.name in ("package.json", "tsconfig.json", "package-lock.json"):
+        if json_file.name in ("package.json", "tsconfig.json", "package-lock.json", "sms_templates.json"):
             continue
-        
         try:
             with open(json_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
-        except (json.JSONDecodeError, UnicodeDecodeError):
-            continue
-        
-        if not isinstance(data, dict) or "questions" not in data:
-            continue
-
+        except: continue
+        if not isinstance(data, dict) or "questions" not in data: continue
         tractate_name = json_file.stem
-        if tractate_name in seen_names:
-            continue
+        if tractate_name in seen_names: continue
         seen_names.add(tractate_name)
-
-        # Calculate total dafim from questions
-        questions = data.get("questions", [])
         max_daf = 2
-        for q in questions:
+        for q in data.get("questions", []):
             daf_info = q.get("daf")
-            if not daf_info:
-                continue
-                
+            if not daf_info: continue
             if isinstance(daf_info, dict):
                 to_info = daf_info.get("to") or daf_info
                 if isinstance(to_info, dict):
-                    d = extract_daf_number(to_info.get("daf"))
-                    max_daf = max(max_daf, d)
-            elif isinstance(daf_info, str):
-                d = extract_daf_number(daf_info)
-                max_daf = max(max_daf, d)
-
-        conn.execute(
-            """
-            INSERT OR REPLACE INTO tractates (name, json_path, total_dafim)
-            VALUES (?, ?, ?)
-            """,
-            (tractate_name, str(json_file), max_daf),
-        )
-        registered += 1
-        try:
-            print(f"  📖 Registered tractate '{tractate_name}' (max daf: {max_daf})")
-        except UnicodeEncodeError:
-            print(f"  Registered tractate '{tractate_name}' (max daf: {max_daf})")
-
+                    max_daf = max(max_daf, extract_daf_number(to_info.get("daf")))
+            else:
+                max_daf = max(max_daf, extract_daf_number(daf_info))
+        conn.execute("INSERT OR REPLACE INTO tractates (name, json_path, total_dafim) VALUES (?, ?, ?)",
+                     (tractate_name, str(json_file), max_daf))
     conn.commit()
     conn.close()
-    try:
-        print(f"✅ Seeded {registered} tractate(s).")
-    except UnicodeEncodeError:
-        print(f"Seeded {registered} tractate(s).")
 
 
 def load_questions(tractate_id: int) -> list:
-    """Load all questions for a tractate."""
     conn = get_conn()
-    row = conn.execute(
-        "SELECT json_path FROM tractates WHERE id = ?", (tractate_id,)
-    ).fetchone()
+    row = conn.execute("SELECT json_path FROM tractates WHERE id = ?", (tractate_id,)).fetchone()
     conn.close()
-
-    if not row:
-        return []
-
+    if not row: return []
     with open(row["json_path"], "r", encoding="utf-8") as f:
         data = json.load(f)
     return data.get("questions", [])
 
 
-def daf_to_float(daf: str | int, amud: str | None) -> float:
-    """Convert daf + amud to float. 2a=2.0, 2b=2.5, 3a=3.0 ..."""
-    d = float(extract_daf_number(daf))
+def daf_to_float(daf_input: str | int, amud: str | None = None) -> float:
+    """Convert daf + amud to float. Handles gimatriya and numeric."""
+    if isinstance(daf_input, str):
+        if 'ע"א' in daf_input:
+            amud = "א"
+            daf_input = daf_input.replace('ע"א', "").strip()
+        elif 'ע"ב' in daf_input:
+            amud = "ב"
+            daf_input = daf_input.replace('ע"ב', "").strip()
+        d = float(extract_daf_number(daf_input))
+    else:
+        d = float(daf_input)
 
-    if amud in ("ב", "b", "B", "2"):
+    if amud in ("ב", "b", "B", "2", 'ע"ב'):
         return d + 0.5
     return d
 
 
 def float_to_daf_str(val: float) -> str:
-    """Convert float position back to human-readable daf string."""
-    daf = int(val)
-    amud = "ב" if (val - daf) >= 0.5 else "א"
-    return f"דף {daf} עמוד {amud}"
+    """Convert float position back to human-readable daf string (e.g., ב ע"א)."""
+    daf_int = int(val)
+    daf_str = int_to_gimatriya(daf_int)
+    amud = 'ע"ב' if (val - daf_int) >= 0.5 else 'ע"א'
+    return f"{daf_str} {amud}"
 
 
 if __name__ == "__main__":

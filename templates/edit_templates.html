@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>עריכת תבניות SMS</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { background-color: #f8f9fa; font-family: system-ui, -apple-system, sans-serif; }
+        .container { max-width: 800px; margin-top: 50px; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        h1 { color: #2c3e50; margin-bottom: 30px; border-bottom: 2px solid #eee; padding-bottom: 10px; }
+        .template-group { margin-bottom: 20px; }
+        label { font-weight: bold; margin-bottom: 5px; display: block; color: #34495e; }
+        textarea { width: 100%; height: 80px; resize: vertical; }
+        .btn-save { background-color: #27ae60; color: white; padding: 10px 30px; font-weight: bold; }
+        .btn-save:hover { background-color: #219150; color: white; }
+        .alert { display: none; margin-top: 20px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>עריכת תבניות SMS</h1>
+    
+    <form id="templates-form">
+        <div id="templates-container">
+            <!-- Templates will be loaded here -->
+        </div>
+        
+        <div class="text-center">
+            <button type="submit" class="btn btn-save">שמור שינויים</button>
+        </div>
+    </form>
+    
+    <div id="success-alert" class="alert alert-success">התבניות נשמרו בהצלחה!</div>
+    <div id="error-alert" class="alert alert-danger">שגיאה בשמירת התבניות.</div>
+</div>
+
+<script>
+    const container = document.getElementById('templates-container');
+    const form = document.getElementById('templates-form');
+    const successAlert = document.getElementById('success-alert');
+    const errorAlert = document.getElementById('error-alert');
+
+    // Load templates
+    fetch('/api/templates')
+        .then(res => res.json())
+        .then(templates => {
+            for (const [key, value] of Object.entries(templates)) {
+                const div = document.createElement('div');
+                div.className = 'template-group';
+                div.innerHTML = `
+                    <label for="${key}">${key}</label>
+                    <textarea class="form-control" id="${key}" name="${key}">${value}</textarea>
+                `;
+                container.appendChild(div);
+            }
+        });
+
+    // Save templates
+    form.onsubmit = (e) => {
+        e.preventDefault();
+        const formData = new FormData(form);
+        const data = {};
+        formData.forEach((value, key) => data[key] = value);
+
+        fetch('/api/templates', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        })
+        .then(res => {
+            if (res.ok) {
+                successAlert.style.display = 'block';
+                setTimeout(() => successAlert.style.display = 'none', 3000);
+            } else {
+                errorAlert.style.display = 'block';
+                setTimeout(() => errorAlert.style.display = 'none', 3000);
+            }
+        });
+    };
+</script>
+
+</body>
+</html>

@@ -29,6 +29,26 @@ def toggle_mode():
 def index():
     return render_template('index.html')
 
+@app.route('/edit-templates')
+def edit_templates():
+    return render_template('edit_templates.html')
+
+@app.route('/api/templates', methods=['GET', 'POST'])
+def manage_templates():
+    template_path = os.path.join(os.path.dirname(__file__), 'sms_templates.json')
+    if request.method == 'POST':
+        data = request.json
+        with open(template_path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=4)
+        return jsonify({"status": "success"})
+    
+    if os.path.exists(template_path):
+        with open(template_path, 'r', encoding='utf-8') as f:
+            templates = json.load(f)
+    else:
+        templates = {}
+    return jsonify(templates)
+
 @app.route('/history')
 def history():
     phone = request.args.get('phone')

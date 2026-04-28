@@ -1,105 +1,42 @@
 """
-scheduler.py - Daily job: send questions and check inactive users.
-Run this every hour via cron: 0 * * * * python scheduler.py
-Or call run_hour(hour) to simulate.
+scheduler.py - Hourly task for sending daily questions
 """
-from database import get_conn, float_to_daf_str
+from datetime import datetime, date
+from database import get_conn, float_to_daf_str, load_questions
+from sms_service import send_sms
 from questions_engine import (
     select_questions_for_range,
     get_already_sent_ids,
-    format_question_sms,
+    format_question_sms
 )
-from sms_service import send_sms
-from datetime import datetime, timedelta
-
-
-INACTIVE_DAYS = 7  # days without response before deactivating
-
+from registration import get_template
 
 def get_due_subscriptions(current_hour: int) -> list:
-    """Return active subscriptions scheduled for this hour."""
+    """Find active subscriptions that should get questions now."""
     conn = get_conn()
+    today = date.today().isoformat()
+    
+    # Filter out paused subscriptions
     rows = conn.execute(
         """
-        SELECT s.*, u.phone, u.name, u.last_response_at, u.inactive_notified,
-               t.name as tractate_name
+        SELECT s.*, t.name as tractate_name, u.phone, u.name as user_name
         FROM subscriptions s
-        JOIN users u ON s.user_id = u.id
         JOIN tractates t ON s.tractate_id = t.id
-        WHERE s.is_active = 1
-          AND u.is_active = 1
-          AND s.send_hour = ?
-          AND s.current_daf <= s.end_daf
+        JOIN users u ON s.user_id = u.id
+        WHERE s.is_active=1 AND s.send_hour=?
+        AND (s.pause_until IS NULL OR s.pause_until <= ?)
         """,
-        (current_hour,),
+        (current_hour, today),
     ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
 
-def check_inactive_users():
-    """
-    Deactivate users who haven't responded in INACTIVE_DAYS days.
-    Sends a warning SMS first.
-    """
-    conn = get_conn()
-    cutoff = (datetime.now() - timedelta(days=INACTIVE_DAYS)).isoformat()
-
-    # Find users inactive too long
-    rows = conn.execute(
-        """
-        SELECT u.id, u.phone, u.name, u.last_response_at, u.inactive_notified
-        FROM users u
-        WHERE u.is_active = 1
-          AND (u.last_response_at IS NULL OR u.last_response_at < ?)
-        """,
-        (cutoff,),
-    ).fetchall()
-
-    messages_to_send = []
-
-    for user in rows:
-        if not user["inactive_notified"]:
-            # Send warning
-            msg = (
-                f"שלום {user['name']}!\n"
-                "שבוע שלם לא קיבלנו תשובה ממך 😢\n"
-                "כדי להמשיך לקבל שאלות, ענה על הודעה זו בכל מילה.\n"
-                "אם לא נשמע ממך, נפסיק לשלוח שאלות."
-            )
-            messages_to_send.append((user["phone"], msg, user["id"]))
-            conn.execute(
-                "UPDATE users SET inactive_notified=1 WHERE id=?", (user["id"],)
-            )
-            print(f"⚠️  Warned inactive user: {user['name']} ({user['phone']})")
-        else:
-            # Already warned — deactivate
-            conn.execute(
-                "UPDATE users SET is_active=0 WHERE id=?", (user["id"],)
-            )
-            conn.execute(
-                "UPDATE subscriptions SET is_active=0 WHERE user_id=?", (user["id"],)
-            )
-            msg = (
-                f"שלום {user['name']}.\n"
-                "לצערנו, הפסקנו לשלוח לך שאלות כי לא ענית שבוע.\n"
-                "כדי להירשם מחדש, פנה אלינו. נשמח לקבלך! 📖"
-            )
-            messages_to_send.append((user["phone"], msg, user["id"]))
-            print(f"🚫 Deactivated inactive user: {user['name']} ({user['phone']})")
-
-    conn.commit()
-    conn.close()
-
-    for phone, msg, uid in messages_to_send:
-        send_sms(phone, msg, uid)
-
-
 def advance_subscription(sub_id: int, dafim_per_day: float):
-    """Advance current_daf position after sending questions."""
+    """Update current_daf for the next day."""
     conn = get_conn()
     conn.execute(
-        "UPDATE subscriptions SET current_daf = MIN(current_daf + ?, end_daf) WHERE id=?",
+        "UPDATE subscriptions SET current_daf = current_daf + ? WHERE id=?",
         (dafim_per_day, sub_id),
     )
     conn.commit()
@@ -107,103 +44,63 @@ def advance_subscription(sub_id: int, dafim_per_day: float):
 
 
 def send_daily_questions(sub: dict):
-    """
-    Pick and send questions for a subscription.
-    Combined into a single SMS to save costs with clear instructions.
-    Records sent questions in DB.
-    """
-    user_id = sub["user_id"]
-    sub_id = sub["id"]
-    tractate_id = sub["tractate_id"]
-    current_daf = sub["current_daf"]
-    dafim_per_day = sub["dafim_per_day"]
-    tractate_name = sub["tractate_name"]
-
-    already_sent = get_already_sent_ids(user_id, sub_id)
-
-    questions = select_questions_for_range(
-        tractate_id=tractate_id,
-        current_daf=current_daf,
-        dafim_per_day=dafim_per_day,
-        count=2,
-        already_sent=already_sent,
-    )
-
-    if not questions:
-        print(f"  ℹ️  No questions available for sub {sub_id} at daf {current_daf}")
-        return
-
-    # Header
-    combined_msg = f"📚 {tractate_name} - {float_to_daf_str(current_daf)}"
+    """Select and send questions for a single subscription."""
+    questions = load_questions(sub["tractate_id"])
+    already_sent = get_already_sent_ids(sub["user_id"], sub["id"])
     
-    conn = get_conn()
-
-    for i, q in enumerate(questions, 1):
-        daf_info = q.get("daf", {})
-        daf_from = str(daf_info.get("from") or daf_info.get("daf", ""))
-        daf_to = str(daf_info.get("to") or daf_info.get("daf", ""))
-
-        msg_part = format_question_sms(q, i, tractate_name)
-        combined_msg += f"\n\n{msg_part}"
-
-        conn.execute(
-            """
-            INSERT INTO sent_questions
-              (user_id, subscription_id, question_id, question_text, daf_from, daf_to)
-            VALUES (?,?,?,?,?,?)
-            """,
-            (user_id, sub_id, q["id"], q["text"], daf_from, daf_to),
-        )
-
-    conn.commit()
-    conn.close()
-
-    # Adding explicit response instructions as requested
-    instructions = (
-        "\n\n------------------------\n"
-        "📝 הוראות מענה:\n"
-        "נא לענות על כל השאלות בהודעה אחת.\n"
-        "הפרד בין התשובות בעזרת פסיק או רווח.\n"
-        "למשל: תשובה1, תשובה2"
+    # We send questions for the current_daf (e.g. 2.0 to 2.49 for one daf)
+    start_f = sub["current_daf"]
+    end_f = start_f + sub["dafim_per_day"] - 0.01
+    
+    daily_selection = select_questions_for_range(
+        questions, start_f, end_f, already_sent
     )
-    combined_msg += instructions
 
-    # Send the single combined message
-    send_sms(sub["phone"], combined_msg, user_id)
-
-    # Advance position
-    advance_subscription(sub_id, dafim_per_day)
-    print(
-        f"  ✉️  Sent combined questions with instructions to {sub['name']} "
-        f"({sub['phone']}) | {tractate_name} daf {float_to_daf_str(current_daf)}"
-    )
+    if daily_selection:
+        conn = get_conn()
+        for i, q in enumerate(daily_selection):
+            msg = format_question_sms(q, i + 1, sub["tractate_name"])
+            send_sms(sub["phone"], msg, sub["user_id"])
+            
+            # Log sent question
+            conn.execute(
+                """
+                INSERT INTO sent_questions (user_id, subscription_id, question_id, question_text)
+                VALUES (?,?,?,?)
+                """,
+                (sub["user_id"], sub["id"], str(q.get("id")), q.get("question")),
+            )
+        conn.commit()
+        conn.close()
+    
+    # Advance to next day
+    advance_subscription(sub["id"], sub["dafim_per_day"])
+    
+    # Send "Tomorrow's Study" message
+    next_start = start_f + sub["dafim_per_day"]
+    next_end = next_start + sub["dafim_per_day"] - 0.5 # Showing 1 daf or relevant range
+    
+    study_range = f"{float_to_daf_str(next_start)}"
+    if sub["dafim_per_day"] > 0.5:
+        study_range += f" עד {float_to_daf_str(next_end)}"
+        
+    tomorrow_msg = get_template("tomorrow_study", next_study=study_range)
+    send_sms(sub["phone"], tomorrow_msg, sub["user_id"])
 
 
 def run_hour(hour: int = None):
-    """
-    Main scheduler job. Run once per hour.
-    If hour is None, uses current hour.
-    """
+    """Main entry point for scheduled task."""
     if hour is None:
         hour = datetime.now().hour
-
-    print(f"\n🕐 Scheduler running for hour {hour:02d}:00 — {datetime.now():%Y-%m-%d %H:%M}")
-
-    # 1. Check and handle inactive users
-    check_inactive_users()
-
-    # 2. Send questions for due subscriptions
+        
     due = get_due_subscriptions(hour)
-    print(f"📬 {len(due)} subscription(s) due at hour {hour:02d}:00")
-
+    print(f"⏰ Hour {hour}: Processing {len(due)} due subscriptions.")
+    
     for sub in due:
-        print(f"  → Processing: {sub['name']} | {sub['tractate_name']}")
-        send_daily_questions(sub)
-
-    print(f"✅ Scheduler done.\n")
-
+        try:
+            send_daily_questions(sub)
+        except Exception as e:
+            print(f"❌ Error sending to sub {sub['id']}: {e}")
 
 if __name__ == "__main__":
-    import sys
-    hour = int(sys.argv[1]) if len(sys.argv) > 1 else None
-    run_hour(hour)
+    run_hour()
