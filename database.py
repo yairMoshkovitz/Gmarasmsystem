@@ -15,6 +15,58 @@ DATA_DIR = Path(__file__).parent / "data"
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
 
+class PostgresRow:
+    def __init__(self, colnames, values):
+        self.data = dict(zip(colnames, values))
+        self.values = values
+
+    def __getitem__(self, key):
+        if isinstance(key, int):
+            return self.values[key]
+        return self.data[key]
+
+    def keys(self):
+        return self.data.keys()
+
+    def items(self):
+        return self.data.items()
+
+    def __iter__(self):
+        # In sqlite3.Row, iterating returns the keys, but I'll stick to values for now
+        # Actually, let's match sqlite3.Row behavior: iteration returns values
+        return iter(self.values)
+
+    def __len__(self):
+        return len(self.values)
+    
+    def __repr__(self):
+        return repr(self.data)
+
+
+class PostgresCursorWrapper:
+    def __init__(self, cursor):
+        self.cursor = cursor
+
+    def fetchone(self):
+        row = self.cursor.fetchone()
+        if row:
+            colnames = [desc[0] for desc in self.cursor.description]
+            return PostgresRow(colnames, row)
+        return None
+
+    def fetchall(self):
+        rows = self.cursor.fetchall()
+        if not rows:
+            return []
+        colnames = [desc[0] for desc in self.cursor.description]
+        return [PostgresRow(colnames, row) for row in rows]
+
+    def __iter__(self):
+        # For SQLite compatibility in loops
+        rows = self.fetchall()
+        return iter(rows)
+
+
 class PostgresConnWrapper:
     def __init__(self, conn):
         self.conn = conn
@@ -32,7 +84,7 @@ class PostgresConnWrapper:
                  cur.execute(f"SELECT id FROM {self._last_table} ORDER BY id DESC LIMIT 1")
             elif "subscriptions" in self._last_table:
                  cur.execute(f"SELECT id FROM {self._last_table} ORDER BY id DESC LIMIT 1")
-            return cur
+            return PostgresCursorWrapper(cur)
 
         # Convert SQLite '?' to Postgres '%s'
         query = query.replace('?', '%s')
@@ -53,7 +105,7 @@ class PostgresConnWrapper:
         
         cur = self.conn.cursor()
         cur.execute(query, params)
-        return cur
+        return PostgresCursorWrapper(cur)
 
     _last_table = ""
 
@@ -64,18 +116,25 @@ class PostgresConnWrapper:
         self.conn.close()
 
     def fetchone(self, cursor):
-        row = cursor.fetchone()
-        if row:
-            # Convert tuple to dict-like for compatibility with sqlite3.Row
-            colnames = [desc[0] for desc in cursor.description]
-            return dict(zip(colnames, row))
+        if hasattr(cursor, 'fetchone'):
+            return cursor.fetchone()
         return None
+
+    def fetchall(self, cursor):
+        if hasattr(cursor, 'fetchall'):
+            return cursor.fetchall()
+        return []
 
 
 def get_conn():
     if DATABASE_URL:
         import psycopg2
-        conn = psycopg2.connect(DATABASE_URL, sslmode='require')
+        # Handle the postgres:// vs postgresql:// issue automatically
+        url = DATABASE_URL
+        if url.startswith("postgres://"):
+            url = url.replace("postgres://", "postgresql://", 1)
+        
+        conn = psycopg2.connect(url, sslmode='require')
         return PostgresConnWrapper(conn)
     else:
         conn = sqlite3.connect(DB_PATH, timeout=10.0)
