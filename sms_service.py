@@ -73,17 +73,6 @@ def reverse_hebrew_line(line: str) -> str:
     Very basic RTL simulation by reversing Hebrew characters in a string.
     Note: This is a 'hack' for terminals that don't support RTL at all.
     """
-    # If the line contains Hebrew, we might want to reverse it for old terminals
-    # But usually, just right-aligning is what's expected if the terminal handles the glyphs.
-    # If the user says it's 'still right to left' (meaning they want it to LOOK like Hebrew),
-    # maybe they mean the order of words or characters is wrong in their specific terminal.
-    
-    # However, 'right to left' in Hebrew means it SHOULD be RTL. 
-    # If they say "it still prints right to left" as a COMPLAINT, maybe they mean the alignment 
-    # or they are confused by the terminology. 
-    # Usually, in Hebrew, "prints from right to left" is the GOAL.
-    
-    # Let's try to make it even more explicitly right-aligned.
     return line
 
 def send_sms(phone: str, message: str, user_id: int = None):
@@ -102,21 +91,23 @@ def send_sms(phone: str, message: str, user_id: int = None):
         send_real_sms(phone, message)
 
     # Console simulation
-    # To truly simulate a right-aligned Hebrew experience in a standard LTR terminal:
     width = 70
-    print(f"\n{'='*width}")
-    # Using a prefix to make it clear it's the phone
-    print(f"טלפון יעד: {phone}".rjust(width))
-    print(f"{'─'*width}")
-    for line in message.split('\n'):
-        if not line.strip():
-            continue
-        # Right align the text. 
-        # If the terminal doesn't support RTL, the Hebrew letters might appear in wrong order,
-        # but modern VS Code terminals handle Hebrew correctly.
-        # The 'rjust' ensures the line starts from the right side of the screen.
-        print(line.rjust(width))
-    print(f"{'='*width}")
+    try:
+        print(f"\n{'='*width}")
+        # Using a prefix to make it clear it's the phone
+        print(f"טלפון יעד: {phone}".rjust(width))
+        print(f"{'-'*width}")
+        for line in message.split('\n'):
+            if not line.strip():
+                continue
+            print(line.rjust(width))
+        print(f"{'='*width}")
+    except UnicodeEncodeError:
+        print(f"\n{'='*width}")
+        print(f"Target Phone: {phone}")
+        print(f"{'-'*width}")
+        print(message)
+        print(f"{'='*width}")
 
 
 def receive_sms(phone: str, message: str):

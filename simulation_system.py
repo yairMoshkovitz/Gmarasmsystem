@@ -119,6 +119,8 @@ def handle_registered_user(phone, user, message):
             conn.execute("UPDATE sent_questions SET responded_at=?, response_text=? WHERE id=?", (datetime.now().isoformat(), message, last_q["id"]))
             conn.commit()
             send_sms(phone, "קיבלתי, תודה!")
+        else:
+            send_sms(phone, "לא מצאתי שאלה פתוחה לשייך אליה את התשובה. וודא שקיבלת שאלה היום.")
         conn.close()
     else:
         send_sms(phone, get_template(template_name="main_menu", name=user["name"]))

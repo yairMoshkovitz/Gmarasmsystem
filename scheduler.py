@@ -77,10 +77,7 @@ def send_daily_questions(sub: dict):
             send_sms(sub["phone"], msg, sub["user_id"])
             
             conn.execute(
-                """
-                INSERT INTO sent_questions (user_id, subscription_id, question_id, question_text)
-                VALUES (?,?,?,?)
-                """,
+                "INSERT INTO sent_questions (user_id, subscription_id, question_id, question_text) VALUES (?, ?, ?, ?)",
                 (sub["user_id"], sub["id"], str(q.get("id")), q.get("question")),
             )
         conn.commit()

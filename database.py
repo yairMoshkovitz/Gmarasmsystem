@@ -69,7 +69,8 @@ class PostgresConnWrapper:
         self.conn = conn
 
     def execute(self, query, params=None):
-        if "last_insert_rowid()" in query:
+        stripped_query = query.strip().upper()
+        if "LAST_INSERT_ROWID()" in stripped_query:
             cur = self.conn.cursor()
             if "users" in self._last_table:
                  cur.execute(f"SELECT id FROM {self._last_table} ORDER BY id DESC LIMIT 1")
@@ -79,12 +80,12 @@ class PostgresConnWrapper:
 
         query = query.replace('?', '%s')
         
-        if "INSERT INTO" in query.upper():
+        if "INSERT INTO" in stripped_query:
             match = re.search(r"INSERT INTO (\w+)", query, re.IGNORECASE)
             if match:
-                self._last_table = match.group(1)
+                self._last_table = match.group(1).lower()
 
-        if "INSERT OR REPLACE" in query.upper():
+        if "INSERT OR REPLACE" in stripped_query:
             query = query.replace("INSERT OR REPLACE", "INSERT")
             if "tractates" in query:
                 query += " ON CONFLICT (name) DO UPDATE SET json_path = EXCLUDED.json_path, total_dafim = EXCLUDED.total_dafim"
