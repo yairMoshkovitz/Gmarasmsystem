@@ -1,8 +1,9 @@
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, Response
 import os
 import json
 import threading
 import time
+import base64
 from datetime import datetime
 from database import get_conn
 from sms_service import get_sms_history, receive_sms, set_live_mode, get_live_mode
@@ -10,6 +11,34 @@ from simulation_system import handle_unregistered_user, handle_registered_user
 from scheduler import run_hour
 
 app = Flask(__name__)
+
+@app.before_request
+def basic_auth():
+    # Skip auth for webhooks or other external APIs if necessary
+    if request.path.startswith('/webhook/'):
+        return
+
+    auth = request.headers.get('Authorization')
+    if not auth or not auth.startswith('Basic '):
+        return Response(
+            'Login required', 401,
+            {'WWW-Authenticate': 'Basic realm="Protected Area"'}
+        )
+
+    try:
+        encoded_creds = auth.split(' ')[1]
+        decoded_creds = base64.b64decode(encoded_creds).decode('utf-8')
+        user, password = decoded_creds.split(':', 1)
+    except Exception:
+        return Response(
+            'Invalid credentials', 401,
+            {'WWW-Authenticate': 'Basic realm="Protected Area"'}
+        )
+
+    if user != 'admin' or password != os.environ.get('SITE_PASSWORD'):
+        return Response(
+            'Wrong password', 403
+        )
 
 # Initialize DB on startup
 from database import init_db, seed_tractates, seed_sms_templates
