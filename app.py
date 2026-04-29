@@ -65,6 +65,77 @@ def dashboard():
 def demo_dashboard():
     return render_template('demo_dashboard.html')
 
+@app.route('/analytics')
+def analytics_page():
+    conn = get_conn()
+    cities = conn.execute("SELECT DISTINCT city FROM users WHERE city IS NOT NULL ORDER BY city").fetchall()
+    tractates = conn.execute("SELECT id, name FROM tractates ORDER BY name").fetchall()
+    conn.close()
+    return render_template('analytics.html', cities=[c['city'] for c in cities], tractates=tractates)
+
+@app.route('/api/analytics/data')
+def analytics_data():
+    city = request.args.get('city')
+    tractate_id = request.args.get('tractate_id')
+    min_yes = request.args.get('min_yes', type=int, default=0)
+    
+    conn = get_conn()
+    
+    # Base user query
+    user_query = """
+        SELECT u.*, 
+        (SELECT count(*) FROM sent_questions sq 
+         WHERE sq.user_id = u.id 
+         AND (sq.response_text LIKE '%כן%' OR sq.response_text LIKE '%נכון%' OR sq.response_text LIKE '%אמת%')) as yes_count,
+        (SELECT count(*) FROM sent_questions sq WHERE sq.user_id = u.id) as total_questions
+        FROM users u
+        WHERE 1=1
+    """
+    params = []
+    if city:
+        user_query += " AND u.city = ?"
+        params.append(city)
+    
+    if tractate_id:
+        user_query += " AND EXISTS (SELECT 1 FROM subscriptions s WHERE s.user_id = u.id AND s.tractate_id = ?)"
+        params.append(tractate_id)
+        
+    users = conn.execute(user_query, params).fetchall()
+    
+    # Filter by min_yes in Python for simplicity if needed, or in SQL
+    filtered_users = [dict(u) for u in users if u['yes_count'] >= min_yes]
+    
+    # Get raw tables for the "DB Explorer" part
+    # Limit for performance
+    raw_users = conn.execute("SELECT * FROM users LIMIT 1000").fetchall()
+    raw_subs = conn.execute("""
+        SELECT s.*, u.phone, u.name as user_name, t.name as tractate_name 
+        FROM subscriptions s
+        JOIN users u ON s.user_id = u.id
+        JOIN tractates t ON s.tractate_id = t.id
+        LIMIT 1000
+    """).fetchall()
+    raw_questions = conn.execute("""
+        SELECT sq.*, u.phone, u.name as user_name 
+        FROM sent_questions sq
+        JOIN users u ON sq.user_id = u.id
+        ORDER BY sent_at DESC
+        LIMIT 1000
+    """).fetchall()
+    raw_logs = conn.execute("SELECT * FROM sms_log ORDER BY sent_at DESC LIMIT 1000").fetchall()
+    
+    conn.close()
+    
+    return jsonify({
+        "filtered_users": filtered_users,
+        "raw_data": {
+            "users": [dict(r) for r in raw_users],
+            "subscriptions": [dict(r) for r in raw_subs],
+            "sent_questions": [dict(r) for r in raw_questions],
+            "sms_log": [dict(r) for r in raw_logs]
+        }
+    })
+
 @app.route('/api/stats/charts')
 def chart_stats():
     conn = get_conn()

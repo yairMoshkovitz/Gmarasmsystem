@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>מערכת גמרא SMS - ניתוח נתונים מתקדם</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.4/css/dataTables.bootstrap5.min.css">
+    <link rel="stylesheet" href="https://cdn.datatables.net/buttons/2.3.6/css/buttons.bootstrap5.min.css">
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.datatables.net/1.13.4/js/jquery.dataTables.min.js"></script>
+    <script src="https://cdn.datatables.net/1.13.4/js/dataTables.bootstrap5.min.js"></script>
+    <script src="https://cdn.datatables.net/buttons/2.3.6/js/dataTables.buttons.min.js"></script>
+    <script src="https://cdn.datatables.net/buttons/2.3.6/js/buttons.bootstrap5.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.1.3/jszip.min.js"></script>
+    <script src="https://cdn.datatables.net/buttons/2.3.6/js/buttons.html5.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { background-color: #f8f9fa; font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; }
+        .navbar { background-color: #075e54; }
+        .card { border-radius: 12px; border: none; box-shadow: 0 2px 10px rgba(0,0,0,0.05); margin-bottom: 20px; }
+        .filter-panel { background: white; padding: 20px; border-radius: 12px; margin-bottom: 30px; border-top: 4px solid #128c7e; }
+        .nav-tabs .nav-link { color: #555; font-weight: 500; border: none; padding: 12px 20px; }
+        .nav-tabs .nav-link.active { color: #075e54; border-bottom: 3px solid #075e54; background: none; }
+        .dt-buttons { margin-bottom: 15px; }
+        .table thead { background-color: #f1f3f5; }
+        .engagement-badge { padding: 5px 10px; border-radius: 20px; font-size: 0.85em; font-weight: bold; }
+        .bg-high { background-color: #d1e7dd; color: #0f5132; }
+        .bg-med { background-color: #fff3cd; color: #664d03; }
+        .bg-low { background-color: #f8d7da; color: #842029; }
+    </style>
+</head>
+<body>
+
+<nav class="navbar navbar-expand-lg navbar-dark mb-4">
+    <div class="container">
+        <a class="navbar-brand" href="/">גמרא SMS - ניתוח נתונים</a>
+        <div class="navbar-nav ms-auto">
+            <a class="nav-link" href="/">חזרה ללוח בקרה</a>
+        </div>
+    </div>
+</nav>
+
+<div class="container-fluid px-4">
+    <div class="row">
+        <!-- Sidebar Filters -->
+        <div class="col-md-3">
+            <div class="filter-panel">
+                <h5 class="mb-4">סינון מתקדם</h5>
+                
+                <div class="mb-3">
+                    <label class="form-label">עיר</label>
+                    <select id="cityFilter" class="form-select">
+                        <option value="">כל הערים</option>
+                        {% for city in cities %}
+                        <option value="{{ city }}">{{ city }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                
+                <div class="mb-3">
+                    <label class="form-label">מסכת</label>
+                    <select id="tractateFilter" class="form-select">
+                        <option value="">כל המסכתות</option>
+                        {% for t in tractates %}
+                        <option value="{{ t.id }}">{{ t.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                
+                <div class="mb-4">
+                    <label class="form-label">מינימום תשובות "כן" (מעורבות)</label>
+                    <input type="number" id="minYesFilter" class="form-control" value="0" min="0">
+                </div>
+                
+                <button id="applyFilters" class="btn btn-primary w-100 py-2 fw-bold">החל סינון</button>
+                <button id="resetFilters" class="btn btn-outline-secondary w-100 mt-2">אפס הכל</button>
+            </div>
+
+            <div class="card p-3 text-center">
+                <h6 class="text-muted mb-2">משתמשים מסוננים</h6>
+                <div id="filteredCount" class="h3 fw-bold color-primary">0</div>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="col-md-9">
+            <!-- Tabs -->
+            <ul class="nav nav-tabs mb-4" id="analyticsTabs" role="tablist">
+                <li class="nav-item">
+                    <a class="nav-link active" id="users-tab" data-bs-toggle="tab" href="#users" role="tab">משתמשים ומעורבות</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" id="explorer-tab" data-bs-toggle="tab" href="#explorer" role="tab">דפדפן בסיס נתונים (כלל המידע)</a>
+                </li>
+            </ul>
+
+            <div class="tab-content" id="analyticsTabsContent">
+                <!-- Users & Engagement Tab -->
+                <div class="tab-pane fade show active" id="users" role="tabpanel">
+                    <div class="card p-4">
+                        <h5 class="mb-4">רשימת משתמשים ורמת פעילות</h5>
+                        <table id="usersTable" class="table table-hover w-100">
+                            <thead>
+                                <tr>
+                                    <th>שם</th>
+                                    <th>טלפון</th>
+                                    <th>עיר</th>
+                                    <th>גיל</th>
+                                    <th>תשובות חיוביות</th>
+                                    <th>סה"כ שאלות</th>
+                                    <th>% מענה</th>
+                                    <th>סטטוס</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- DB Explorer Tab -->
+                <div class="tab-pane fade" id="explorer" role="tabpanel">
+                    <div class="card p-2 mb-4">
+                        <div class="nav nav-pills" id="db-pills" role="tablist">
+                            <button class="nav-link active" data-bs-toggle="pill" data-bs-target="#raw-users">משתמשים</button>
+                            <button class="nav-link" data-bs-toggle="pill" data-bs-target="#raw-subs">מנויים</button>
+                            <button class="nav-link" data-bs-toggle="pill" data-bs-target="#raw-questions">שאלות שנשלחו</button>
+                            <button class="nav-link" data-bs-toggle="pill" data-bs-target="#raw-logs">יומן SMS</button>
+                        </div>
+                    </div>
+
+                    <div class="tab-content">
+                        <div class="tab-pane fade show active" id="raw-users">
+                            <div class="card p-3">
+                                <h6>כל המשתמשים</h6>
+                                <table id="rawUsersTable" class="table table-sm table-striped w-100"></table>
+                            </div>
+                        </div>
+                        <div class="tab-pane fade" id="raw-subs">
+                            <div class="card p-3">
+                                <h6>כל המנויים</h6>
+                                <table id="rawSubsTable" class="table table-sm table-striped w-100"></table>
+                            </div>
+                        </div>
+                        <div class="tab-pane fade" id="raw-questions">
+                            <div class="card p-3">
+                                <h6>היסטוריית שאלות</h6>
+                                <table id="rawQuestionsTable" class="table table-sm table-striped w-100"></table>
+                            </div>
+                        </div>
+                        <div class="tab-pane fade" id="raw-logs">
+                            <div class="card p-3">
+                                <h6>יומן הודעות מלא</h6>
+                                <table id="rawLogsTable" class="table table-sm table-striped w-100"></table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+    let usersTable, rawUsersTable, rawSubsTable, rawQuestionsTable, rawLogsTable;
+
+    $(document).ready(function() {
+        loadData();
+
+        $('#applyFilters').click(loadData);
+        $('#resetFilters').click(function() {
+            $('#cityFilter').val('');
+            $('#tractateFilter').val('');
+            $('#minYesFilter').val('0');
+            loadData();
+        });
+    });
+
+    async function loadData() {
+        const city = $('#cityFilter').val();
+        const tractateId = $('#tractateFilter').val();
+        const minYes = $('#minYesFilter').val();
+
+        const url = `/api/analytics/data?city=${encodeURIComponent(city)}&tractate_id=${tractateId}&min_yes=${minYes}`;
+        
+        try {
+            const response = await fetch(url);
+            const data = await response.json();
+            
+            updateUsersTable(data.filtered_users);
+            updateExplorerTables(data.raw_data);
+            $('#filteredCount').text(data.filtered_users.length);
+            
+        } catch (err) {
+            console.error('Error loading analytics data:', err);
+        }
+    }
+
+    function updateUsersTable(users) {
+        if (usersTable) usersTable.destroy();
+        
+        const rows = users.map(u => {
+            const perc = u.total_questions > 0 ? Math.round((u.yes_count / u.total_questions) * 100) : 0;
+            let badgeClass = 'bg-low';
+            if (perc > 70) badgeClass = 'bg-high';
+            else if (perc > 30) badgeClass = 'bg-med';
+            
+            return `
+                <tr>
+                    <td>${u.name || ''} ${u.last_name || ''}</td>
+                    <td>${u.phone}</td>
+                    <td>${u.city || '-'}</td>
+                    <td>${u.age || '-'}</td>
+                    <td class="fw-bold">${u.yes_count}</td>
+                    <td>${u.total_questions}</td>
+                    <td><span class="engagement-badge ${badgeClass}">${perc}%</span></td>
+                    <td>${u.is_active ? 'פעיל' : 'לא פעיל'}</td>
+                </tr>
+            `;
+        }).join('');
+
+        $('#usersTable tbody').html(rows);
+        
+        usersTable = $('#usersTable').DataTable({
+            language: { url: '//cdn.datatables.net/plug-ins/1.13.4/i18n/he.json' },
+            dom: 'Bfrtip',
+            buttons: [
+                { extend: 'csv', text: 'הורד CSV', className: 'btn btn-sm btn-success' },
+                { extend: 'excel', text: 'הורד Excel', className: 'btn btn-sm btn-success' }
+            ]
+        });
+    }
+
+    function updateExplorerTables(raw) {
+        // Raw Users
+        if (rawUsersTable) rawUsersTable.destroy();
+        $('#rawUsersTable').empty();
+        rawUsersTable = $('#rawUsersTable').DataTable({
+            data: raw.users,
+            columns: [
+                { data: 'id', title: 'ID' },
+                { data: 'phone', title: 'טלפון' },
+                { data: 'name', title: 'שם' },
+                { data: 'city', title: 'עיר' },
+                { data: 'registered_at', title: 'תאריך רישום' }
+            ],
+            dom: 'Bfrtip',
+            buttons: ['csv'],
+            pageLength: 10,
+            language: { url: '//cdn.datatables.net/plug-ins/1.13.4/i18n/he.json' }
+        });
+
+        // Raw Subscriptions
+        if (rawSubsTable) rawSubsTable.destroy();
+        $('#rawSubsTable').empty();
+        rawSubsTable = $('#rawSubsTable').DataTable({
+            data: raw.subscriptions,
+            columns: [
+                { data: 'user_name', title: 'שם' },
+                { data: 'phone', title: 'טלפון' },
+                { data: 'tractate_name', title: 'מסכת' },
+                { data: 'current_daf', title: 'דף נוכחי' },
+                { data: 'dafim_per_day', title: 'דפים ליום' },
+                { data: 'is_active', title: 'פעיל?' }
+            ],
+            dom: 'Bfrtip',
+            buttons: ['csv'],
+            pageLength: 10,
+            language: { url: '//cdn.datatables.net/plug-ins/1.13.4/i18n/he.json' }
+        });
+
+        // Raw Questions
+        if (rawQuestionsTable) rawQuestionsTable.destroy();
+        $('#rawQuestionsTable').empty();
+        rawQuestionsTable = $('#rawQuestionsTable').DataTable({
+            data: raw.sent_questions,
+            columns: [
+                { data: 'user_name', title: 'שם' },
+                { data: 'question_text', title: 'שאלה' },
+                { data: 'response_text', title: 'תשובה' },
+                { data: 'sent_at', title: 'זמן שליחה' },
+                { data: 'responded_at', title: 'זמן מענה' }
+            ],
+            dom: 'Bfrtip',
+            buttons: ['csv'],
+            pageLength: 10,
+            language: { url: '//cdn.datatables.net/plug-ins/1.13.4/i18n/he.json' }
+        });
+
+        // Raw Logs
+        if (rawLogsTable) rawLogsTable.destroy();
+        $('#rawLogsTable').empty();
+        rawLogsTable = $('#rawLogsTable').DataTable({
+            data: raw.sms_log,
+            columns: [
+                { data: 'phone', title: 'טלפון' },
+                { data: 'direction', title: 'כיוון' },
+                { data: 'message', title: 'הודעה' },
+                { data: 'sent_at', title: 'זמן' }
+            ],
+            dom: 'Bfrtip',
+            buttons: ['csv'],
+            pageLength: 10,
+            language: { url: '//cdn.datatables.net/plug-ins/1.13.4/i18n/he.json' }
+        });
+    }
+</script>
+
+</body>
+</html>
