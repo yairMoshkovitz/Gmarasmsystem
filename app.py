@@ -110,7 +110,7 @@ def chart_stats():
         FROM subscriptions s
         LEFT JOIN tractates t ON s.tractate_id = t.id 
         WHERE s.is_active = 1
-        GROUP BY s.tractate_id 
+        GROUP BY s.tractate_id, t.name
         ORDER BY count DESC
     """).fetchall()
     
