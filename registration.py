@@ -46,9 +46,10 @@ def register_user(phone: str, name: str, last_name: str = None, city: str = None
     user_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
     conn.close()
 
-    welcome = get_template("welcome_new_user", name=name)
-    send_sms(phone, welcome, user_id)
-    print(f"✅ Registered user: {name} ({phone}) → ID {user_id}")
+    try:
+        print(f"Registered user: {name} ({phone}) -> ID {user_id}")
+    except UnicodeEncodeError:
+        print(f"Registered user ID {user_id}")
     return user_id
 
 
@@ -112,7 +113,10 @@ def subscribe(
     )
     send_sms(user["phone"], confirm, user_id)
 
-    print(f"✅ Subscription #{sub_id}: User {user_id} → {tractate['name']} daf {start_daf}–{end_daf}")
+    try:
+        print(f"Subscription #{sub_id}: User {user_id} -> {tractate['name']} daf {start_daf}-{end_daf}")
+    except:
+        print(f"Subscription #{sub_id} created")
     return sub_id
 
 
@@ -125,7 +129,7 @@ def unsubscribe(user_id: int, tractate_id: int):
     )
     conn.commit()
     conn.close()
-    print(f"❌ Unsubscribed user {user_id} from tractate {tractate_id}.")
+    print(f"Unsubscribed user {user_id} from tractate {tractate_id}.")
 
 
 def get_user_subscriptions(user_id: int) -> list:

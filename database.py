@@ -271,6 +271,7 @@ def extract_daf_number(val):
 def seed_tractates():
     """Register tractates from JSON files in data/ directory."""
     conn = get_conn()
+    is_postgres = bool(os.environ.get("DATABASE_URL"))
     json_files = list(DATA_DIR.glob("*.json")) + list(Path(__file__).parent.glob("*.json"))
     seen_names = set()
     for json_file in json_files:
@@ -294,8 +295,22 @@ def seed_tractates():
                     max_daf = max(max_daf, extract_daf_number(to_info.get("daf")))
             else:
                 max_daf = max(max_daf, extract_daf_number(daf_info))
-        conn.execute("INSERT OR REPLACE INTO tractates (name, json_path, total_dafim) VALUES (?, ?, ?)",
-                     (tractate_name, str(json_file), max_daf))
+        
+        # Use UPSERT logic to keep the same ID if the name exists
+        if is_postgres:
+            conn.execute("""
+                INSERT INTO tractates (name, json_path, total_dafim) VALUES (%s, %s, %s)
+                ON CONFLICT (name) DO UPDATE SET json_path = EXCLUDED.json_path, total_dafim = EXCLUDED.total_dafim
+            """, (tractate_name, str(json_file), max_daf))
+        else:
+            # For SQLite, check if exists
+            existing = conn.execute("SELECT id FROM tractates WHERE name = ?", (tractate_name,)).fetchone()
+            if existing:
+                conn.execute("UPDATE tractates SET json_path = ?, total_dafim = ? WHERE id = ?",
+                             (str(json_file), max_daf, existing[0]))
+            else:
+                conn.execute("INSERT INTO tractates (name, json_path, total_dafim) VALUES (?, ?, ?)",
+                             (tractate_name, str(json_file), max_daf))
     conn.commit()
     conn.close()
 

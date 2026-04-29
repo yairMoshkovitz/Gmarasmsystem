@@ -61,6 +61,69 @@ def dashboard():
     conn.close()
     return render_template('dashboard.html', stats=stats)
 
+@app.route('/api/stats/charts')
+def chart_stats():
+    conn = get_conn()
+    is_postgres = bool(os.environ.get("DATABASE_URL"))
+    
+    # 1. Users over time (last 30 days)
+    if is_postgres:
+        users_query = "SELECT date(registered_at) as date, count(*) as count FROM users GROUP BY date(registered_at) ORDER BY date DESC LIMIT 30"
+    else:
+        users_query = "SELECT date(registered_at) as date, count(*) as count FROM users GROUP BY date(registered_at) ORDER BY date DESC LIMIT 30"
+    
+    users_data = conn.execute(users_query).fetchall()
+    
+    # 2. Answers status (Yes/No/No Response)
+    # Simple logic: if response_text exists and contains common "Yes" words in Hebrew
+    yes_keywords = ['כן', 'נכון', 'אמת', 'יאפ', 'חיובי']
+    # We'll fetch last 100 sent questions that have a response
+    responses = conn.execute("SELECT response_text FROM sent_questions WHERE responded_at IS NOT NULL ORDER BY responded_at DESC LIMIT 500").fetchall()
+    
+    yes_count = 0
+    no_count = 0
+    for r in responses:
+        txt = (r['response_text'] or "").strip().lower()
+        if any(kw in txt for kw in yes_keywords):
+            yes_count += 1
+        else:
+            no_count += 1
+            
+    # 3. Age distribution
+    age_data = conn.execute("SELECT CASE \
+        WHEN age < 13 THEN 'עד 12' \
+        WHEN age BETWEEN 13 AND 18 THEN '13-18' \
+        WHEN age BETWEEN 19 AND 24 THEN '19-24' \
+        WHEN age BETWEEN 25 AND 30 THEN '25-30' \
+        WHEN age BETWEEN 31 AND 40 THEN '31-40' \
+        WHEN age > 40 THEN '41+' \
+        ELSE 'לא צוין' END as age_group, count(*) as count \
+        FROM users GROUP BY age_group").fetchall()
+    
+    # 4. City distribution
+    city_data = conn.execute("SELECT COALESCE(city, 'לא צוין') as city, count(*) as count FROM users GROUP BY city ORDER BY count DESC LIMIT 10").fetchall()
+
+    # 5. Subscriptions per Tractate (Total registrations)
+    # Using LEFT JOIN and looking for the most recent tractates or using IDs if name is missing
+    tractate_stats = conn.execute("""
+        SELECT COALESCE(t.name, 'מסכת #' || s.tractate_id) as name, count(s.id) as count 
+        FROM subscriptions s
+        LEFT JOIN tractates t ON s.tractate_id = t.id 
+        WHERE s.is_active = 1
+        GROUP BY s.tractate_id 
+        ORDER BY count DESC
+    """).fetchall()
+    
+    conn.close()
+    
+    return jsonify({
+        "users_growth": [{"date": r['date'], "count": r['count']} for r in reversed(users_data)],
+        "answers": {"yes": yes_count, "no": no_count},
+        "ages": [{"group": r['age_group'], "count": r['count']} for r in age_data],
+        "cities": [{"city": r['city'], "count": r['count']} for r in city_data],
+        "tractates": [{"name": r['name'], "count": r['count']} for r in tractate_stats]
+    })
+
 @app.route('/simulator')
 def index():
     return render_template('index.html')
@@ -119,6 +182,8 @@ def process_incoming_sms(phone, message):
     if not user:
         handle_unregistered_user(phone, message)
     else:
+        # We reuse the logic from simulation_system to keep it consistent
+        from simulation_system import handle_registered_user
         handle_registered_user(phone, user, message)
 
 if __name__ == '__main__':

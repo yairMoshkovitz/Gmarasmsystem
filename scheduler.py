@@ -52,44 +52,10 @@ def advance_subscription(sub_id: int, dafim_per_day: float):
     conn.commit()
     conn.close()
 
-
-def send_daily_questions(sub: dict):
-    """Select and send questions for a single subscription."""
-    # Safety check: don't send twice in the same calendar day
-    if has_sent_today(sub["user_id"], sub["id"]):
-        print(f"Skipping sub {sub['id']} - already sent today.")
-        return
-
-    questions = load_questions(sub["tractate_id"])
-    already_sent = get_already_sent_ids(sub["user_id"], sub["id"])
-    
+def finish_subscription_day(sub: dict):
+    """Send finishing messages and advance daf."""
+    # 1. Send "Tomorrow's Study" message
     start_f = sub["current_daf"]
-    end_f = start_f + sub["dafim_per_day"] - 0.01
-    
-    daily_selection = select_questions_for_range(
-        questions, start_f, end_f, already_sent
-    )
-
-    if daily_selection:
-        conn = get_conn()
-        for i, q in enumerate(daily_selection):
-            msg = format_question_sms(q, i + 1, sub["tractate_name"])
-            conn.execute(
-                "INSERT INTO sent_questions (user_id, subscription_id, question_id, question_text) VALUES (?, ?, ?, ?)",
-                (sub["user_id"], sub["id"], str(q.get("id")), q.get("text") or q.get("question") or ""),
-            )
-        conn.commit()
-        conn.close()
-        for i, q in enumerate(daily_selection):
-            msg = format_question_sms(q, i + 1, sub["tractate_name"])
-            send_sms(sub["phone"], msg, sub["user_id"])
-    else:
-        send_sms(sub["phone"], get_template("no_questions_today"), sub["user_id"])
-
-    # Advance to next day
-    advance_subscription(sub["id"], sub["dafim_per_day"])
-    
-    # Send "Tomorrow's Study" message
     next_start = start_f + sub["dafim_per_day"]
     next_end = next_start + sub["dafim_per_day"] - 0.5
     
@@ -99,6 +65,67 @@ def send_daily_questions(sub: dict):
         
     tomorrow_msg = get_template("tomorrow_study", next_study=study_range)
     send_sms(sub["phone"], tomorrow_msg, sub["user_id"])
+    
+    # 2. Advance to next day
+    advance_subscription(sub["id"], sub["dafim_per_day"])
+
+def send_next_question_or_finish(sub: dict):
+    """
+    Check for the next question to send in the current range.
+    If no more questions (or reached daily limit), send the 'tomorrow study' message.
+    """
+    # 1. Check daily limit (e.g., 2 questions per day)
+    conn = get_conn()
+    today_start = date.today().isoformat() + "T00:00:00"
+    count_row = conn.execute(
+        "SELECT COUNT(*) FROM sent_questions WHERE subscription_id=? AND sent_at >= ?",
+        (sub["id"], today_start)
+    ).fetchone()
+    conn.close()
+    
+    daily_limit = 2 # This could be configurable in the future
+    if count_row[0] >= daily_limit:
+        print(f"Sub {sub['id']} reached daily limit of {daily_limit} questions.")
+        finish_subscription_day(sub)
+        return False
+
+    questions = load_questions(sub["tractate_id"])
+    already_sent = get_already_sent_ids(sub["user_id"], sub["id"])
+    
+    start_f = sub["current_daf"]
+    end_f = start_f + sub["dafim_per_day"] - 0.01
+    
+    daily_selection = select_questions_for_range(
+        questions, start_f, end_f, already_sent, max_questions=1
+    )
+
+    if daily_selection:
+        q = daily_selection[0]
+        conn = get_conn()
+        conn.execute(
+            "INSERT INTO sent_questions (user_id, subscription_id, question_id, question_text) VALUES (?, ?, ?, ?)",
+            (sub["user_id"], sub["id"], str(q.get("id")), q.get("text") or q.get("question") or ""),
+        )
+        conn.commit()
+        conn.close()
+        
+        msg = format_question_sms(q, 1, sub["tractate_name"])
+        send_sms(sub["phone"], msg, sub["user_id"])
+        return True
+    else:
+        # No more questions in range for today
+        finish_subscription_day(sub)
+        return False
+
+def send_daily_questions(sub: dict):
+    """Select and send the FIRST question for a single subscription."""
+    # Safety check: don't send twice in the same calendar day (initial trigger)
+    if has_sent_today(sub["user_id"], sub["id"]):
+        print(f"Skipping sub {sub['id']} - already sent today.")
+        return
+
+    # Try to send the first question
+    send_next_question_or_finish(sub)
 
 
 def run_hour(hour: int = None):
