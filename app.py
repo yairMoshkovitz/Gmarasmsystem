@@ -84,11 +84,13 @@ def analytics_data():
     placeholder = "%s" if is_postgres else "?"
     
     # Base user query
+    # Note: In Postgres, %% is needed to escape % when using %s placeholders
+    p_esc = "%" if not is_postgres else "%%"
     user_query = f"""
         SELECT u.*, 
         (SELECT count(*) FROM sent_questions sq 
          WHERE sq.user_id = u.id 
-         AND (sq.response_text LIKE '%כן%' OR sq.response_text LIKE '%נכון%' OR sq.response_text LIKE '%אמת%')) as yes_count,
+         AND (sq.response_text LIKE '{p_esc}כן{p_esc}' OR sq.response_text LIKE '{p_esc}נכון{p_esc}' OR sq.response_text LIKE '{p_esc}אמת{p_esc}')) as yes_count,
         (SELECT count(*) FROM sent_questions sq WHERE sq.user_id = u.id) as total_questions
         FROM users u
         WHERE 1=1
