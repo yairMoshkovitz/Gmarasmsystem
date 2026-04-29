@@ -80,9 +80,11 @@ def analytics_data():
     min_yes = request.args.get('min_yes', type=int, default=0)
     
     conn = get_conn()
+    is_postgres = bool(os.environ.get("DATABASE_URL"))
+    placeholder = "%s" if is_postgres else "?"
     
     # Base user query
-    user_query = """
+    user_query = f"""
         SELECT u.*, 
         (SELECT count(*) FROM sent_questions sq 
          WHERE sq.user_id = u.id 
@@ -93,11 +95,11 @@ def analytics_data():
     """
     params = []
     if city:
-        user_query += " AND u.city = ?"
+        user_query += f" AND u.city = {placeholder}"
         params.append(city)
     
     if tractate_id:
-        user_query += " AND EXISTS (SELECT 1 FROM subscriptions s WHERE s.user_id = u.id AND s.tractate_id = ?)"
+        user_query += f" AND EXISTS (SELECT 1 FROM subscriptions s WHERE s.user_id = u.id AND s.tractate_id = {placeholder})"
         params.append(tractate_id)
         
     users = conn.execute(user_query, params).fetchall()

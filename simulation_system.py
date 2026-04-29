@@ -4,7 +4,7 @@ simulation_system.py - SMS bot simulation with numeric menu and states
 import os
 import sys
 from datetime import datetime, timedelta
-from registration import register_user, subscribe, get_all_tractates, get_user_subscriptions, get_template
+from registration import register_user, subscribe, get_all_tractates, get_user_subscriptions, get_template, find_tractate_by_name
 from scheduler import send_daily_questions, has_sent_today
 from database import get_conn, float_to_daf_str, daf_to_float
 from sms_service import get_sms_history, send_sms, receive_sms
@@ -45,35 +45,112 @@ def handle_registered_user(phone, user, message):
     
     if state_info:
         if state_info["state"] == "AWAITING_REG_STEP_2":
-            parts = [p.strip() for p in message.split(',')]
-            if len(parts) == 4:
+            # New flexible parsing logic: Masechta [Range] [Rate] [Hour]
+            match_obj, matched_text, is_in_db = find_tractate_by_name(message)
+            
+            if matched_text:
+                if not is_in_db:
+                    send_sms(phone, f"אין שאלות עבור מסכת {matched_text}. המערכת כרגע תומכת רק במסכתות שנלמדו.")
+                    return
+
+                tractate_obj = match_obj
                 try:
-                    tractate_name = parts[0]
-                    range_part = parts[1]
-                    if " עד " in range_part:
-                        start_str, end_str = range_part.split(" עד ")
-                        start_f, end_f = daf_to_float(start_str), daf_to_float(end_str)
+                    remaining = message[len(matched_text):].strip()
+                    # Normalizing delimiters
+                    norm_rem = remaining.replace(',', ' ')
+                    
+                    # Defaults
+                    start_f = 2.0
+                    end_f = 100.0
+                    if 'total_dafim' in tractate_obj:
+                         end_f = float(tractate_obj['total_dafim'])
+                    rate = 1.0
+                    hour = 18
+
+                    # Advanced Parsing
+                    if " עד " in norm_rem:
+                        parts_range = norm_rem.split(" עד ")
+                        start_str = parts_range[0].strip()
+                        start_f = daf_to_float(start_str)
+                        
+                        end_part_full = parts_range[1].strip()
+                        end_tokens = end_part_full.split()
+                        
+                        if len(end_tokens) >= 2 and end_tokens[1] in ('ע"א', 'ע"ב'):
+                            end_str = f"{end_tokens[0]} {end_tokens[1]}"
+                            end_f = daf_to_float(end_str)
+                            remaining_params = end_tokens[2:]
+                        else:
+                            end_str = end_tokens[0]
+                            # if end is just daf, include amud b
+                            if 'ע"א' not in end_str and 'ע"ב' not in end_str:
+                                 end_f = daf_to_float(end_str) + 0.5
+                            else:
+                                 end_f = daf_to_float(end_str)
+                            remaining_params = end_tokens[1:]
+                            
+                        if len(remaining_params) >= 1:
+                            try: rate = float(remaining_params[0])
+                            except: pass
+                        if len(remaining_params) >= 2:
+                            try: hour = int(remaining_params[1])
+                            except: pass
                     else:
-                        start_f = daf_to_float(range_part)
-                        end_f = start_f + 10.0
-                    rate, hour = float(parts[2]), int(parts[3])
+                        params = norm_rem.split()
+                        if params:
+                            if len(params) >= 2 and params[1] in ('ע"א', 'ע"ב'):
+                                start_str = f"{params[0]} {params[1]}"
+                                idx = 2
+                            else:
+                                start_str = params[0]
+                                idx = 1
+                            start_f = daf_to_float(start_str)
+                            
+                            if idx < len(params) and params[idx] == 'עד':
+                                idx += 1
+                                if idx < len(params):
+                                    if idx + 1 < len(params) and params[idx+1] in ('ע"א', 'ע"ב'):
+                                        end_str = f"{params[idx]} {params[idx+1]}"
+                                        idx += 2
+                                        end_f = daf_to_float(end_str)
+                                    else:
+                                        end_str = params[idx]
+                                        idx += 1
+                                        if 'ע"א' not in end_str and 'ע"ב' not in end_str:
+                                             end_f = daf_to_float(end_str) + 0.5
+                                        else:
+                                             end_f = daf_to_float(end_str)
+                            
+                            if idx < len(params):
+                                try: rate = float(params[idx]); idx += 1
+                                except: pass
+                            if idx < len(params):
+                                try: hour = int(params[idx]); idx += 1
+                                except: pass
                     
-                    tractates = get_all_tractates()
-                    tractate_id = next((t['id'] for t in tractates if t['name'].strip() == tractate_name.strip()), None)
-                    if not tractate_id:
-                        send_sms(phone, get_template("tractate_not_found", tractate=tractate_name))
-                        return
+                    from database import load_questions
+                    questions = load_questions(tractate_obj['id'])
+                    found_q = False
+                    for q in questions:
+                        from questions_engine import get_daf_range_for_question
+                        q_start, q_end = get_daf_range_for_question(q)
+                        if q_start >= start_f and q_start <= end_f:
+                            found_q = True
+                            break
                     
-                    subscribe(user["id"], tractate_id, start_f, end_f, rate, hour)
+                    if not found_q:
+                        send_sms(phone, f"שים לב: לא נמצאו שאלות למסכת {tractate_obj['name']} בטווח {float_to_daf_str(start_f)} עד {float_to_daf_str(end_f)}. המנוי נוצר, אך שאלות יישלחו רק כאשר יתווספו למערכת.")
+
+                    subscribe(user["id"], tractate_obj["id"], start_f, end_f, rate, hour)
                     if phone in USER_STATES:
                         del USER_STATES[phone]
                     return
                 except Exception as e:
                     print(f"DEBUG Step 2 Error: {e}")
-                    send_sms(phone, "שגיאה בפרטי המסכת. אנא שלח בפורמט: מסכת, דף התחלה עד דף סיום, קצב, שעה")
+                    send_sms(phone, "שגיאה בפרטי המסכת. אנא שלח בפורמט: מסכת, דף התחלה עד דף סיום, קצב, שעה\nלדוגמה: ברכות ב עד י 1 18")
                     return
             else:
-                send_sms(phone, get_template("registration_step_2_instructions", name=user["name"]))
+                send_sms(phone, get_template("tractate_not_found", tractate=message.split()[0] if message.split() else message))
                 return
 
         if state_info["state"] == "AWAITING_UPDATE_DAF":
@@ -85,7 +162,7 @@ def handle_registered_user(phone, user, message):
                 conn.close()
                 send_sms(phone, get_template("update_daf_success", daf=float_to_daf_str(new_daf_f)))
                 del USER_STATES[phone]
-            except:
+            except Exception as e:
                 send_sms(phone, "פורמט דף לא תקין. נסה שוב (למשל: כ ע\"ב) או שלח 'ביטול'.")
             return
         if state_info["state"] == "AWAITING_PAUSE_DAYS":
@@ -145,7 +222,6 @@ def handle_registered_user(phone, user, message):
         send_sms(phone, get_template("registration_step_2_instructions", name=user["name"]))
     elif message.lower() in ["כן", "לא", "ידעתי", "לא ידעתי"]:
         conn = get_conn()
-        # Find the OLDEST unanswered question for this user to keep order
         last_q = conn.execute(
             "SELECT id, subscription_id FROM sent_questions WHERE user_id=? AND responded_at IS NULL ORDER BY sent_at ASC LIMIT 1", 
             (user["id"],)
@@ -155,7 +231,6 @@ def handle_registered_user(phone, user, message):
             conn.execute("UPDATE sent_questions SET responded_at=?, response_text=? WHERE id=?", (datetime.now().isoformat(), message, last_q["id"]))
             conn.commit()
             
-            # Find the specific subscription for this question
             sub_id = last_q["subscription_id"]
             sub_row = conn.execute(
                 "SELECT s.*, t.name as tractate_name, u.phone, u.name as user_name "
@@ -167,7 +242,6 @@ def handle_registered_user(phone, user, message):
             conn.close()
             
             if sub_row:
-                # Check for next question for THIS specific subscription
                 from scheduler import send_next_question_or_finish
                 send_next_question_or_finish(dict(sub_row))
         else:

@@ -9,6 +9,22 @@ import os
 
 _template_cache = {}
 
+# Comprehensive list of all Shas tractates
+ALL_SHAS_TRACTATES = [
+    # Zeraim
+    "ברכות", "פאה", "דמאי", "כלאים", "שביעית", "תרומות", "מעשרות", "מעשר שני", "חלה", "ערלה", "ביכורים",
+    # Moed
+    "שבת", "עירובין", "פסחים", "שקלים", "יומא", "סוכה", "ביצה", "ראש השנה", "תענית", "מגילה", "מועד קטן", "חגיגה",
+    # Nashim
+    "יבמות", "כתובות", "נדרים", "נזיר", "סוטה", "גיטין", "קידושין",
+    # Nezikin
+    "בבא קמא", "בבא מציעא", "בבא בתרא", "סנהדרין", "מכות", "שבועות", "עדיות", "עבודה זרה", "אבות", "הוריות",
+    # Kodashim
+    "זבחים", "מנחות", "חולין", "בכורות", "ערכין", "תמורה", "כריתות", "מעילה", "תמיד", "מידות", "קינים",
+    # Tahorot
+    "כלים", "אהלות", "נגעים", "פרה", "טהרות", "מקואות", "נדה", "מכשירין", "זבים", "טבול יום", "ידיים", "עוקצים"
+]
+
 def get_template(template_name_pos=None, **kwargs):
     # Use a unique name for the first argument to avoid collisions with kwargs like 'name'
     template_name = kwargs.pop('template_name', template_name_pos)
@@ -93,6 +109,35 @@ def get_all_tractates() -> list:
     conn.close()
     return [dict(r) for r in rows]
 
+def find_tractate_by_name(input_name: str):
+    """
+    Finds a tractate by name, supporting prefixes and 'מסכת' prefix.
+    Checks against the full Shas list first.
+    Returns (tractate_dict_or_name_str, matched_text, is_in_db) 
+    """
+    clean_input = input_name.strip().replace("מסכת ", "").replace("מסכת", "").strip()
+    
+    # 1. Check against full Shas list (Hardcoded)
+    # Sort by length descending to match longer names first
+    shas_list = sorted(ALL_SHAS_TRACTATES, key=len, reverse=True)
+    
+    matched_shas_name = None
+    for name in shas_list:
+        if clean_input.startswith(name):
+            matched_shas_name = name
+            break
+            
+    if not matched_shas_name:
+        return None, None, False
+        
+    # 2. Check if it's in the DB
+    db_tractates = get_all_tractates()
+    db_match = next((t for t in db_tractates if t['name'].strip() == matched_shas_name), None)
+    
+    if db_match:
+        return db_match, matched_shas_name, True
+    else:
+        return matched_shas_name, matched_shas_name, False
 
 def subscribe(
     user_id: int,
@@ -115,15 +160,15 @@ def subscribe(
 
     # Deactivate existing subscription for same tractate
     conn.execute(
-        "UPDATE subscriptions SET is_active=0 WHERE user_id=? AND tractate_id=?",
+        "DELETE FROM subscriptions WHERE user_id=? AND tractate_id=?",
         (user_id, tractate_id),
     )
 
     conn.execute(
         """
         INSERT INTO subscriptions
-          (user_id, tractate_id, start_daf, end_daf, current_daf, dafim_per_day, send_hour)
-        VALUES (?,?,?,?,?,?,?)
+          (user_id, tractate_id, start_daf, end_daf, current_daf, dafim_per_day, send_hour, is_active)
+        VALUES (?,?,?,?,?,?,?,1)
         """,
         (user_id, tractate_id, int(start_daf), end_daf, start_daf, rate, hour),
     )
