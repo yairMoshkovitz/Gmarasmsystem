@@ -35,8 +35,26 @@
 </nav>
 
 <div class="container">
-    <h1>עריכת תבניות SMS</h1>
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h1>עריכת תבניות SMS</h1>
+        <button id="btn-check-sync" class="btn btn-outline-secondary">
+            🔄 בדוק פערים מול הקוד
+        </button>
+    </div>
     <p class="text-muted mb-4">כאן ניתן לערוך את תוכן ההודעות שהמערכת שולחת. שים לב להסברים ולערכים שאסור לשנות.</p>
+
+    <!-- Sync Alerts Section -->
+    <div id="sync-alerts" style="display: none; border: 2px solid #ffc107; background-color: #fff3cd; padding: 20px; border-radius: 8px;" class="mb-4 shadow">
+        <h5 class="fw-bold text-dark mb-3">⚠️ נמצאו פערים בין הקוד לבסיס הנתונים</h5>
+        <div id="sync-details" class="mb-3"></div>
+        <div class="text-center">
+            <button id="btn-sync-all" class="btn btn-warning btn-lg fw-bold border border-dark shadow-sm">סנכרן את כל השינויים ל-DB</button>
+        </div>
+    </div>
+    
+    <div id="no-sync-alerts" style="display: none; border: 2px solid #198754; background-color: #d1e7dd; padding: 15px; border-radius: 8px;" class="mb-4">
+        <h5 class="m-0 text-success fw-bold">✅ אין פערים! התבניות בבסיס הנתונים מסונכרנות באופן מלא עם קובץ הקוד.</h5>
+    </div>
     
     <form id="templates-form">
         <div id="templates-container">
@@ -57,31 +75,34 @@
     const form = document.getElementById('templates-form');
     const successAlert = document.getElementById('success-alert');
     const errorAlert = document.getElementById('error-alert');
+    const syncAlerts = document.getElementById('sync-alerts');
+    const syncDetails = document.getElementById('sync-details');
+    const btnSyncAll = document.getElementById('btn-sync-all');
 
     const metadata = {
         "welcome_new_user": {
             "title": "הודעת ברוך הבא",
             "desc": "נשלחת למשתמש חדש מיד לאחר הרישום הראשוני.",
-            "placeholders": "{name} (שם המשתמש)",
-            "risk": "אין לשנות או למחוק את {name}"
+            "placeholders": "{name}",
+            "risk": "אין למחוק את {name}"
         },
         "registration_success": {
             "title": "אישור הרשמה למסכת",
             "desc": "נשלחת לאחר שהמשתמש נרשם בהצלחה למסכת ספציפית.",
             "placeholders": "{tractate}, {start_daf}, {end_daf}, {rate}, {hour}",
-            "risk": "אסור למחוק אף אחד מהערכים בסוגריים המסולסלים {} - הם הכרחיים להצגת נתוני הרישום!"
+            "risk": "אסור למחוק ערכי {}"
         },
         "main_menu": {
             "title": "תפריט ראשי",
             "desc": "ההודעה שנשלחת כשהמשתמש שולח הודעה ריקה או 'תפריט'.",
             "placeholders": "{name}",
-            "risk": "שמור על מספור האפשרויות (1-6) כדי שהמערכת תדע לפענח את התשובות."
+            "risk": "שמור על מספור האפשרויות (1-6)"
         },
         "ask_update_daf": {
             "title": "בקשת עדכון דף",
             "desc": "נשלחת כשהמשתמש מבקש לעדכן את המיקום שלו בלימוד.",
             "placeholders": "אין",
-            "risk": "שינוי הטקסט עשוי לבלבל את המשתמש לגבי הפורמט הנדרש."
+            "risk": "המשתמש צריך לדעת איך לענות"
         },
         "update_daf_success": {
             "title": "אישור עדכון דף",
@@ -93,7 +114,7 @@
             "title": "בקשת ימי הקפאה",
             "desc": "נשלחת כשהמשתמש מבקש להקפיא את הלימוד.",
             "placeholders": "אין",
-            "risk": "המשתמש חייב להבין שהוא צריך לענות במספר ימים."
+            "risk": "אין"
         },
         "pause_success": {
             "title": "אישור הקפאה",
@@ -111,7 +132,7 @@
             "title": "בקשת שעת שליחה חדשה",
             "desc": "נשלחת כשהמשתמש מבקש לשנות את שעת קבלת ההודעות.",
             "placeholders": "אין",
-            "risk": "המשתמש חייב להבין שהוא צריך לענות במספר בין 0 ל-23."
+            "risk": "מספר בין 0 ל-23"
         },
         "update_hour_success": {
             "title": "אישור עדכון שעה",
@@ -135,13 +156,19 @@
             "title": "מבנה השאלה היומית",
             "desc": "זוהי התבנית העיקרית של השאלות שנשלחות מדי יום.",
             "placeholders": "{tractate}, {daf}, {question}",
-            "risk": "קריטי: אסור למחוק את {tractate}, {daf} או {question}! בלעדיהם לא תישלח שאלה תקינה."
+            "risk": "קריטי: אסור למחוק את {tractate}, {daf} או {question}!"
         },
         "unregistered_instructions": {
             "title": "הוראות למשתמש לא רשום",
             "desc": "נשלחת למי ששולח הודעה ואינו רשום במערכת.",
             "placeholders": "אין",
-            "risk": "חשוב להשאיר את הדוגמה ברורה כדי שאנשים ידעו איך להירשם."
+            "risk": "חשוב להשאיר את הדוגמה ברורה"
+        },
+        "registration_step_2_instructions": {
+            "title": "שלב 2 ברישום",
+            "desc": "הנחיות להגדרת הלימוד (מסכת, דפים וכו')",
+            "placeholders": "{name}",
+            "risk": "חובה להשאיר את {name}"
         },
         "error_parsing_registration": {
             "title": "שגיאת רישום",
@@ -154,29 +181,178 @@
             "desc": "נשלחת כשהמשתמש מנסה להירשם למסכת שלא קיימת במאגר.",
             "placeholders": "{tractate}",
             "risk": "חובה להשאיר את {tractate}"
+        },
+        "no_questions_today": {
+            "title": "אין שאלות להיום",
+            "desc": "נשלחת כשאין שאלות בטווח הדפים הנוכחי",
+            "placeholders": "אין",
+            "risk": "אין"
+        },
+        "followup_reminder": {
+            "title": "תזכורת מעקב",
+            "desc": "נשלחת אם המשתמש לא ענה על השאלה",
+            "placeholders": "{name}",
+            "risk": "חובה להשאיר את {name}"
         }
     };
 
-    // Load templates
-    fetch('/api/templates')
-        .then(res => res.json())
-        .then(templates => {
-            for (const [key, value] of Object.entries(templates)) {
-                const meta = metadata[key] || { title: key, desc: "אין תיאור זמין", placeholders: "לא ידוע", risk: "אין מידע" };
-                const div = document.createElement('div');
-                div.className = 'template-group';
-                div.innerHTML = `
-                    <label for="${key}">${meta.title} (${key})</label>
-                    <div class="explanation">
-                        <strong>תיאור:</strong> ${meta.desc}<br>
-                        <strong>תגיות להחלפה (Placeholders):</strong> <span class="placeholder-list">${meta.placeholders}</span>
-                    </div>
-                    <textarea class="form-control" id="${key}" name="${key}">${value}</textarea>
-                    <div class="warning">⚠️ אזהרה: ${meta.risk}</div>
-                `;
-                container.appendChild(div);
+    function loadTemplates() {
+        container.innerHTML = '';
+        fetch('/api/templates')
+            .then(res => res.json())
+            .then(templates => {
+                for (const [key, value] of Object.entries(templates)) {
+                    const meta = metadata[key] || { title: key, desc: "אין תיאור זמין", placeholders: "לא ידוע", risk: "אין מידע" };
+                    const div = document.createElement('div');
+                    div.className = 'template-group';
+                    div.id = `group-${key}`;
+                    div.innerHTML = `
+                        <label for="${key}">${meta.title} (${key})</label>
+                        <div class="explanation">
+                            <strong>תיאור:</strong> ${meta.desc}<br>
+                            <strong>תגיות להחלפה (Placeholders):</strong> <span class="placeholder-list">${meta.placeholders}</span>
+                        </div>
+                        <textarea class="form-control" id="${key}" name="${key}">${value}</textarea>
+                        <div class="warning">⚠️ אזהרה: ${meta.risk}</div>
+                    `;
+                    container.appendChild(div);
+                }
+                checkDiff();
+            });
+    }
+
+    const noSyncAlerts = document.getElementById('no-sync-alerts');
+    const btnCheckSync = document.getElementById('btn-check-sync');
+
+    btnCheckSync.addEventListener('click', () => {
+        btnCheckSync.innerHTML = '⏳ בודק...';
+        checkDiff(true);
+    });
+
+    function checkDiff(manualCheck = false) {
+        
+        console.log('--- Starting checkDiff ---');
+        console.log('Manual check triggered:', manualCheck);
+        
+        syncAlerts.style.display = 'none';
+        noSyncAlerts.style.display = 'none';
+        syncDetails.innerHTML = ''; // Clear previous
+        
+        fetch('/api/templates/diff')
+            .then(res => {
+                console.log('Received response from /api/templates/diff, status:', res.status);
+                return res.json();
+            })
+            .then(diff => {
+                console.log('Parsed diff data:', diff);
+                btnCheckSync.innerHTML = '🔄 בדוק פערים מול הקוד';
+                
+                let html = '';
+                const keysToSync = [];
+
+                if (diff.new_in_json && diff.new_in_json.length > 0) {
+                    console.log(`Found ${diff.new_in_json.length} new items in JSON.`);
+                    html += `<h6 class="fw-bold">🆕 תבניות חדשות בקוד (JSON):</h6><ul class="mb-3">`;
+                    diff.new_in_json.forEach(item => {
+                        console.log('- New item key:', item.key);
+                        html += `<li><strong>${item.key}</strong></li>`;
+                        keysToSync.push(item.key);
+                    });
+                    html += `</ul>`;
+                }
+
+                if (diff.different && diff.different.length > 0) {
+                    console.log(`Found ${diff.different.length} modified items.`);
+                    html += `<h6 class="fw-bold">🔄 שינויי תוכן (הקוד שונה מה-DB):</h6><ul class="mb-3" style="list-style-type: none; padding-right: 0;">`;
+                    diff.different.forEach(item => {
+                        console.log(`- Modified item: ${item.key}`);
+                        console.log(`  DB Content:   ${item.db_content}`);
+                        console.log(`  JSON Content: ${item.json_content}`);
+                        
+                        const dbContent = item.db_content || "";
+                        const jsonContent = item.json_content || "";
+                        
+                        html += `<li class="mb-3">
+                            <span class="badge bg-warning text-dark fs-6 mb-2">${item.key}</span>
+                            <div class="card shadow-sm border-warning">
+                                <div class="card-body p-2" style="font-size: 0.95rem; white-space: pre-wrap; font-family: monospace; text-align: right;" dir="rtl">
+                                    <div class="text-danger mb-2 border-bottom pb-2">
+                                        <div class="fw-bold mb-1">❌ בבסיס הנתונים (מוצג כרגע):</div>
+                                        <div style="background-color: #ffebee; padding: 5px; border-radius: 4px;">${dbContent}</div>
+                                    </div>
+                                    <div class="text-success mt-2">
+                                        <div class="fw-bold mb-1">✅ בקובץ הקוד (JSON החדש):</div>
+                                        <div style="background-color: #e8f5e9; padding: 5px; border-radius: 4px;">${jsonContent}</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </li>`;
+                        keysToSync.push(item.key);
+                        
+                        const group = document.getElementById(`group-${item.key}`);
+                        if (group) {
+                            group.style.border = '2px solid #ffc107';
+                            group.style.backgroundColor = '#fffef0';
+                            console.log(`Highlighted form group for ${item.key}`);
+                        } else {
+                            console.warn(`Could not find form group for ${item.key}`);
+                        }
+                    });
+                    html += `</ul>`;
+                }
+
+                console.log(`Total keys to sync: ${keysToSync.length}`);
+                
+                if (keysToSync.length > 0) {
+                    console.log('Updating HTML and showing sync alert box.');
+                    syncDetails.innerHTML = html;
+                    syncAlerts.style.display = 'block';
+                    
+                    try {
+                        syncAlerts.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    } catch (e) {
+                        console.log('ScrollIntoView failed (normal in some old browsers)', e);
+                    }
+                    
+                    btnSyncAll.onclick = (e) => {
+                        e.preventDefault();
+                        console.log('Sync All button clicked. Syncing keys:', keysToSync);
+                        sync(keysToSync);
+                    };
+                } else {
+                    console.log('No keys to sync. Hiding sync alert box.');
+                    syncAlerts.style.display = 'none';
+                    if (manualCheck) {
+                        noSyncAlerts.style.display = 'block';
+                        setTimeout(() => noSyncAlerts.style.display = 'none', 4000);
+                    }
+                }
+            })
+            .catch(err => {
+                console.error('--- ERROR IN checkDiff ---', err);
+                btnCheckSync.innerHTML = '🔄 שגיאה בבדיקה';
+                setTimeout(() => btnCheckSync.innerHTML = '🔄 בדוק פערים מול הקוד', 3000);
+            });
+    }
+
+    function sync(keys) {
+        if (!confirm('האם אתה בטוח שברצונך לעדכן את בסיס הנתונים לפי קובץ ה-JSON? פעולה זו תדרוס שינויים ידניים שביצעת בתבניות אלו.')) return;
+        
+        fetch('/api/templates/sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ keys })
+        })
+        .then(res => {
+            if (res.ok) {
+                location.reload();
+            } else {
+                alert('שגיאה בסנכרון');
             }
         });
+    }
+
+    loadTemplates();
 
     // Save templates
     form.onsubmit = (e) => {

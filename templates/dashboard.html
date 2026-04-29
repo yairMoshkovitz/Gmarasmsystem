@@ -36,6 +36,10 @@
         <h1 class="display-4">לוח בקרה וסטטיסטיקה</h1>
         <p class="lead">ניהול ובקרה על מערכת לימוד הגמרא ב-SMS</p>
         
+        <div class="mt-2 mb-3">
+            <a href="/demo" class="btn btn-warning btn-sm">תצוגת הדגמה (Demo)</a>
+        </div>
+
         <div class="mt-3 p-2 bg-white bg-opacity-25 rounded-pill d-inline-block border">
             <div class="form-check form-switch d-flex align-items-center gap-3 px-4">
                 <label class="form-check-label fw-bold" for="liveModeSwitch">מצב חי (SMS אמיתי):</label>
@@ -282,6 +286,7 @@
             console.error('Error initializing charts:', err);
         }
     }
+
 
     window.onload = () => {
         updateModeUI();

@@ -268,6 +268,34 @@ def extract_daf_number(val):
     return 2
 
 
+def seed_sms_templates():
+    """Seed SMS templates from JSON to DB if they don't exist."""
+    template_path = Path(__file__).parent / "sms_templates.json"
+    if not template_path.exists():
+        return
+    
+    try:
+        with open(template_path, "r", encoding="utf-8") as f:
+            templates = json.load(f)
+    except:
+        return
+
+    conn = get_conn()
+    is_postgres = bool(os.environ.get("DATABASE_URL"))
+    
+    for key, content in templates.items():
+        if is_postgres:
+            conn.execute("""
+                INSERT INTO sms_templates (key, content) VALUES (%s, %s)
+                ON CONFLICT (key) DO NOTHING
+            """, (key, content))
+        else:
+            conn.execute("INSERT OR IGNORE INTO sms_templates (key, content) VALUES (?, ?)", (key, content))
+    
+    conn.commit()
+    conn.close()
+
+
 def seed_tractates():
     """Register tractates from JSON files in data/ directory."""
     conn = get_conn()
@@ -354,3 +382,4 @@ def float_to_daf_str(val: float) -> str:
 if __name__ == "__main__":
     init_db()
     seed_tractates()
+    seed_sms_templates()

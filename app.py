@@ -61,6 +61,10 @@ def dashboard():
     conn.close()
     return render_template('dashboard.html', stats=stats)
 
+@app.route('/demo')
+def demo_dashboard():
+    return render_template('demo_dashboard.html')
+
 @app.route('/api/stats/charts')
 def chart_stats():
     conn = get_conn()
@@ -130,23 +134,117 @@ def index():
 
 @app.route('/edit-templates')
 def edit_templates():
-    return render_template('edit_templates.html')
+    response = render_template('edit_templates.html')
+    # Prevent caching for the edit templates page
+    return response, 200, {
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0'
+    }
 
 @app.route('/api/templates', methods=['GET', 'POST'])
 def manage_templates():
-    template_path = os.path.join(os.path.dirname(__file__), 'sms_templates.json')
+    from registration import clear_template_cache
     if request.method == 'POST':
         data = request.json
-        with open(template_path, 'w', encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=False, indent=4)
+        conn = get_conn()
+        is_postgres = bool(os.environ.get("DATABASE_URL"))
+        for key, content in data.items():
+            if is_postgres:
+                conn.execute("""
+                    INSERT INTO sms_templates (key, content, updated_at) VALUES (%s, %s, CURRENT_TIMESTAMP)
+                    ON CONFLICT (key) DO UPDATE SET content = EXCLUDED.content, updated_at = EXCLUDED.updated_at
+                """, (key, content))
+            else:
+                conn.execute("INSERT OR REPLACE INTO sms_templates (key, content, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)", (key, content))
+        conn.commit()
+        conn.close()
+        clear_template_cache()
         return jsonify({"status": "success"})
     
-    if os.path.exists(template_path):
-        with open(template_path, 'r', encoding='utf-8') as f:
-            templates = json.load(f)
-    else:
-        templates = {}
+    conn = get_conn()
+    rows = conn.execute("SELECT key, content FROM sms_templates").fetchall()
+    conn.close()
+    
+    templates = {r["key"]: r["content"] for r in rows}
+    
+    # If DB is empty, try to load from JSON
+    if not templates:
+        template_path = os.path.join(os.path.dirname(__file__), 'sms_templates.json')
+        if os.path.exists(template_path):
+            with open(template_path, 'r', encoding='utf-8') as f:
+                templates = json.load(f)
+                
     return jsonify(templates)
+
+@app.route('/api/templates/diff')
+def templates_diff():
+    template_path = os.path.join(os.path.dirname(__file__), 'sms_templates.json')
+    if not os.path.exists(template_path):
+        return jsonify({"error": "JSON file not found"}), 404
+        
+    try:
+        # Force reload from file to catch external changes
+        with open(template_path, 'r', encoding='utf-8') as f:
+            json_templates = json.load(f)
+    except Exception as e:
+        return jsonify({"error": f"Failed to parse JSON: {e}"}), 500
+        
+    conn = get_conn()
+    rows = conn.execute("SELECT key, content FROM sms_templates").fetchall()
+    conn.close()
+    db_templates = {r["key"]: r["content"] for r in rows}
+    
+    diff = {
+        "new_in_json": [],
+        "different": [],
+        "only_in_db": []
+    }
+    
+    for key, json_content in json_templates.items():
+        if key not in db_templates:
+            diff["new_in_json"].append({"key": key, "json_content": json_content})
+        else:
+            # Simple direct comparison first, fallback to whitespace-insensitive if needed
+            if db_templates[key] != json_content:
+                diff["different"].append({
+                    "key": key, 
+                    "json_content": json_content, 
+                    "db_content": db_templates[key]
+                })
+            
+    for key in db_templates:
+        if key not in json_templates:
+            diff["only_in_db"].append(key)
+            
+    return jsonify(diff)
+
+@app.route('/api/templates/sync', methods=['POST'])
+def sync_templates():
+    from registration import clear_template_cache
+    data = request.json
+    keys = data.get('keys', []) # List of keys to sync from JSON to DB
+    
+    template_path = os.path.join(os.path.dirname(__file__), 'sms_templates.json')
+    with open(template_path, 'r', encoding='utf-8') as f:
+        json_templates = json.load(f)
+        
+    conn = get_conn()
+    is_postgres = bool(os.environ.get("DATABASE_URL"))
+    for key in keys:
+        if key in json_templates:
+            content = json_templates[key]
+            if is_postgres:
+                conn.execute("""
+                    INSERT INTO sms_templates (key, content, updated_at) VALUES (%s, %s, CURRENT_TIMESTAMP)
+                    ON CONFLICT (key) DO UPDATE SET content = EXCLUDED.content, updated_at = EXCLUDED.updated_at
+                """, (key, content))
+            else:
+                conn.execute("INSERT OR REPLACE INTO sms_templates (key, content, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)", (key, content))
+    conn.commit()
+    conn.close()
+    clear_template_cache()
+    return jsonify({"status": "success"})
 
 @app.route('/history')
 def history():

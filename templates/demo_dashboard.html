@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>מערכת גמרא SMS - תצוגת הדגמה</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { background-color: #f0f2f5; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        .navbar { background-color: #f39c12; color: white; } /* Different color to indicate demo mode */
+        .card { border-radius: 15px; border: none; box-shadow: 0 4px 12px rgba(0,0,0,0.1); transition: transform 0.2s; height: 100%; }
+        .card:hover { transform: translateY(-5px); }
+        .stat-value { font-size: 2.5rem; font-weight: bold; color: #f39c12; }
+        .stat-label { color: #666; font-size: 1.1rem; }
+        .nav-link { color: white !important; font-weight: 500; }
+        .hero-section { background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%); color: white; padding: 40px 0; margin-bottom: 30px; border-radius: 0 0 30px 30px; }
+        .btn-custom { padding: 12px 30px; border-radius: 30px; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; }
+        .chart-container { position: relative; height: 300px; width: 100%; }
+        .demo-badge { position: absolute; top: 10px; left: 10px; background-color: #e74c3c; color: white; padding: 5px 15px; border-radius: 20px; font-weight: bold; font-size: 0.9rem; z-index: 1000; box-shadow: 0 2px 5px rgba(0,0,0,0.2); }
+    </style>
+</head>
+<body>
+
+<div class="demo-badge">מצב הדגמה (נתונים פיקטיביים)</div>
+
+<nav class="navbar navbar-expand-lg">
+    <div class="container">
+        <a class="navbar-brand text-white" href="/">חזרה למערכת האמיתית</a>
+    </div>
+</nav>
+
+<div class="hero-section text-center">
+    <div class="container">
+        <h1 class="display-4">לוח בקרה - תצוגת הדגמה</h1>
+        <p class="lead">כך ייראו הנתונים כאשר המערכת תהיה פעילה עם הרבה משתמשים</p>
+    </div>
+</div>
+
+<div class="container">
+    <!-- Stat Cards -->
+    <div class="row g-4 text-center mb-5">
+        <div class="col-md-3">
+            <div class="card p-4">
+                <div class="stat-value">1,248</div>
+                <div class="stat-label">משתמשים רשומים</div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card p-4">
+                <div class="stat-value">45,932</div>
+                <div class="stat-label">הודעות נשלחו (סה"כ)</div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card p-4">
+                <div class="stat-value">1,105</div>
+                <div class="stat-label">הודעות היום</div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card p-4">
+                <div class="stat-value">5</div>
+                <div class="stat-label">מסכתות פעילות</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Charts Row 1 -->
+    <div class="row g-4 mb-4">
+        <div class="col-md-8">
+            <div class="card p-4">
+                <h4 class="mb-4">הצטרפות משתמשים חדשים (30 יום)</h4>
+                <div class="chart-container">
+                    <canvas id="usersGrowthChart"></canvas>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card p-4 text-center">
+                <h4 class="mb-4">סטטוס תשובות</h4>
+                <div class="chart-container">
+                    <canvas id="answersChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Charts Row 2 -->
+    <div class="row g-4 mb-4">
+        <div class="col-md-6">
+            <div class="card p-4">
+                <h4 class="mb-4">פילוח גילאים</h4>
+                <div class="chart-container">
+                    <canvas id="ageDistChart"></canvas>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="card p-4">
+                <h4 class="mb-4">רשומים לפי מסכת</h4>
+                <div class="chart-container">
+                    <canvas id="tractateDistChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Charts Row 3 -->
+    <div class="row g-4 mb-5">
+        <div class="col-md-12">
+            <div class="card p-4">
+                <h4 class="mb-4">התפלגות לפי ערים (Top 10)</h4>
+                <div class="chart-container">
+                    <canvas id="cityDistChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<footer class="text-center py-4 mt-5 text-muted">
+    &copy; 2026 מערכת גמרא SMS - כל הזכויות שמורות
+</footer>
+
+<script>
+    // Hardcoded Demo Data
+    const demoData = {
+        users_growth: Array.from({length: 30}, (_, i) => {
+            const d = new Date();
+            d.setDate(d.getDate() - (29 - i));
+            return {
+                date: d.toISOString().split('T')[0],
+                count: Math.floor(Math.random() * 15) + 2
+            };
+        }),
+        answers: { yes: 7840, no: 2150 },
+        ages: [
+            { group: 'עד 12', count: 45 },
+            { group: '13-18', count: 320 },
+            { group: '19-24', count: 410 },
+            { group: '25-30', count: 215 },
+            { group: '31-40', count: 150 },
+            { group: '41+', count: 108 }
+        ],
+        cities: [
+            { city: 'ירושלים', count: 450 },
+            { city: 'בני ברק', count: 320 },
+            { city: 'בית שמש', count: 180 },
+            { city: 'מודיעין עילית', count: 110 },
+            { city: 'ביתר עילית', count: 85 },
+            { city: 'אלעד', count: 65 },
+            { city: 'אשדוד', count: 50 },
+            { city: 'צפת', count: 35 },
+            { city: 'חיפה', count: 25 },
+            { city: 'נתניה', count: 20 }
+        ],
+        tractates: [
+            { name: 'ברכות', count: 520 },
+            { name: 'שבת', count: 310 },
+            { name: 'עירובין', count: 180 },
+            { name: 'פסחים', count: 150 },
+            { name: 'יומא', count: 88 }
+        ]
+    };
+
+    window.onload = () => {
+        // 1. Users Growth Chart
+        new Chart(document.getElementById('usersGrowthChart'), {
+            type: 'line',
+            data: {
+                labels: demoData.users_growth.map(d => d.date),
+                datasets: [{
+                    label: 'משתמשים חדשים (הדגמה)',
+                    data: demoData.users_growth.map(d => d.count),
+                    borderColor: '#f39c12',
+                    backgroundColor: 'rgba(243, 156, 18, 0.1)',
+                    fill: true,
+                    tension: 0.4
+                }]
+            },
+            options: { responsive: true, maintainAspectRatio: false }
+        });
+
+        // 2. Answers Doughnut Chart
+        new Chart(document.getElementById('answersChart'), {
+            type: 'doughnut',
+            data: {
+                labels: ['כן/נכון', 'אחר/לא ענו'],
+                datasets: [{
+                    data: [demoData.answers.yes, demoData.answers.no],
+                    backgroundColor: ['#2ecc71', '#e74c3c']
+                }]
+            },
+            options: { responsive: true, maintainAspectRatio: false }
+        });
+
+        // 3. Age Distribution Chart
+        new Chart(document.getElementById('ageDistChart'), {
+            type: 'bar',
+            data: {
+                labels: demoData.ages.map(a => a.group),
+                datasets: [{
+                    label: 'כמות משתמשים',
+                    data: demoData.ages.map(a => a.count),
+                    backgroundColor: '#3498db'
+                }]
+            },
+            options: { responsive: true, maintainAspectRatio: false }
+        });
+
+        // 4. City Distribution Chart
+        new Chart(document.getElementById('cityDistChart'), {
+            type: 'bar',
+            data: {
+                labels: demoData.cities.map(c => c.city),
+                datasets: [{
+                    label: 'כמות משתמשים',
+                    data: demoData.cities.map(c => c.count),
+                    backgroundColor: '#1abc9c'
+                }]
+            },
+            options: { responsive: true, maintainAspectRatio: false }
+        });
+
+        // 5. Tractate Distribution Chart
+        new Chart(document.getElementById('tractateDistChart'), {
+            type: 'pie',
+            data: {
+                labels: demoData.tractates.map(t => t.name),
+                datasets: [{
+                    data: demoData.tractates.map(t => t.count),
+                    backgroundColor: [
+                        '#f1c40f', '#e67e22', '#e74c3c', '#9b59b6', '#3498db'
+                    ]
+                }]
+            },
+            options: { responsive: true, maintainAspectRatio: false }
+        });
+    };
+</script>
+
+</body>
+</html>

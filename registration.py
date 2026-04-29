@@ -7,17 +7,50 @@ from datetime import datetime
 import json
 import os
 
+_template_cache = {}
+
 def get_template(template_name_pos=None, **kwargs):
     # Use a unique name for the first argument to avoid collisions with kwargs like 'name'
     template_name = kwargs.pop('template_name', template_name_pos)
-    template_path = os.path.join(os.path.dirname(__file__), "sms_templates.json")
+    
+    global _template_cache
+    
+    # 1. Check cache first
+    template_content = _template_cache.get(template_name)
+    
+    if not template_content:
+        try:
+            # 2. Try DB
+            conn = get_conn()
+            row = conn.execute("SELECT content FROM sms_templates WHERE key = ?", (template_name,)).fetchone()
+            conn.close()
+            
+            if row:
+                template_content = row["content"]
+                _template_cache[template_name] = template_content
+            else:
+                # 3. Fallback to JSON
+                template_path = os.path.join(os.path.dirname(__file__), "sms_templates.json")
+                if os.path.exists(template_path):
+                    with open(template_path, "r", encoding="utf-8") as f:
+                        templates = json.load(f)
+                    template_content = templates.get(template_name, "")
+                    if template_content:
+                        _template_cache[template_name] = template_content
+        except Exception as e:
+            print(f"Error loading template {template_name}: {e}")
+            
+    if not template_content:
+        return f"Template {template_name} not found"
+        
     try:
-        with open(template_path, "r", encoding="utf-8") as f:
-            templates = json.load(f)
-        template_content = templates.get(template_name, "")
         return template_content.format(**kwargs)
     except Exception as e:
-        return f"Template {template_name} error: {e}"
+        return f"Template {template_name} format error: {e}"
+
+def clear_template_cache():
+    global _template_cache
+    _template_cache = {}
 
 def register_user(phone: str, name: str, last_name: str = None, city: str = None, age: int = None) -> int:
     """Register a new user. Returns user_id."""
