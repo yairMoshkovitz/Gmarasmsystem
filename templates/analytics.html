@@ -28,6 +28,13 @@
         .bg-high { background-color: #d1e7dd; color: #0f5132; }
         .bg-med { background-color: #fff3cd; color: #664d03; }
         .bg-low { background-color: #f8d7da; color: #842029; }
+        
+        /* Fix Hebrew alignment in DataTables */
+        table.dataTable thead th, table.dataTable thead td { text-align: right !important; padding-right: 10px !important; }
+        .dataTables_wrapper { direction: rtl; }
+        div.dataTables_wrapper div.dataTables_filter { text-align: left !important; }
+        div.dataTables_wrapper div.dataTables_info { text-align: right !important; }
+        .dt-buttons { text-align: right !important; }
     </style>
 </head>
 <body>

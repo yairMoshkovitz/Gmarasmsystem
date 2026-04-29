@@ -12,10 +12,11 @@ from scheduler import run_hour
 app = Flask(__name__)
 
 # Initialize DB on startup
-from database import init_db, seed_tractates
+from database import init_db, seed_tractates, seed_sms_templates
 try:
     init_db()
     seed_tractates()
+    seed_sms_templates()
 except Exception as e:
     print(f"⚠️ Database initialization warning: {e}")
 

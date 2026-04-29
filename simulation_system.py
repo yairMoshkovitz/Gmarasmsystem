@@ -50,7 +50,7 @@ def handle_registered_user(phone, user, message):
             
             if matched_text:
                 if not is_in_db:
-                    send_sms(phone, f"אין שאלות עבור מסכת {matched_text}. המערכת כרגע תומכת רק במסכתות שנלמדו.")
+                    send_sms(phone, get_template("tractate_not_supported", tractate=matched_text))
                     return
 
                 tractate_obj = match_obj
@@ -139,7 +139,10 @@ def handle_registered_user(phone, user, message):
                             break
                     
                     if not found_q:
-                        send_sms(phone, f"שים לב: לא נמצאו שאלות למסכת {tractate_obj['name']} בטווח {float_to_daf_str(start_f)} עד {float_to_daf_str(end_f)}. המנוי נוצר, אך שאלות יישלחו רק כאשר יתווספו למערכת.")
+                        send_sms(phone, get_template("no_questions_in_range", 
+                                                     tractate=tractate_obj['name'], 
+                                                     start=float_to_daf_str(start_f), 
+                                                     end=float_to_daf_str(end_f)))
 
                     subscribe(user["id"], tractate_obj["id"], start_f, end_f, rate, hour)
                     if phone in USER_STATES:

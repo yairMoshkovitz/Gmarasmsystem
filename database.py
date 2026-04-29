@@ -300,10 +300,18 @@ def seed_tractates():
     """Register tractates from JSON files in data/ directory."""
     conn = get_conn()
     is_postgres = bool(os.environ.get("DATABASE_URL"))
-    json_files = list(DATA_DIR.glob("*.json")) + list(Path(__file__).parent.glob("*.json"))
+    
+    # Check multiple locations for JSON files
+    search_paths = [DATA_DIR, Path(__file__).parent]
+    json_files = []
+    for p in search_paths:
+        if p.exists():
+            json_files.extend(list(p.glob("*.json")))
+
     seen_names = set()
     for json_file in json_files:
-        if json_file.name in ("package.json", "tsconfig.json", "package-lock.json", "sms_templates.json"):
+        # Skip system and backup files
+        if json_file.name in ("package.json", "tsconfig.json", "package-lock.json", "sms_templates.json") or "backup" in json_file.name.lower():
             continue
         try:
             with open(json_file, "r", encoding="utf-8") as f:
