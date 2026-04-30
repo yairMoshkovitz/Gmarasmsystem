@@ -4,6 +4,7 @@ import json
 import threading
 import time
 import base64
+import xml.etree.ElementTree as ET
 from datetime import datetime
 from database import get_conn
 from sms_service import get_sms_history, receive_sms, set_live_mode, get_live_mode
@@ -374,42 +375,55 @@ def send():
 def inforu_webhook():
     # Debug logging for Railway/Inforu issues
     print(f"--- Incoming Webhook {request.method} ---")
-    print(f"Path: {request.path}")
-    print(f"Args: {request.args}")
-    print(f"Form: {request.form}")
     
-    raw_data = request.get_data(as_text=True)
-    print(f"Raw Body: {raw_data}")
+    phone = None
+    message = None
     
-    try:
-        json_data = request.get_json(silent=True)
-        print(f"JSON: {json_data}")
-    except:
-        json_data = None
+    # 1. Handle Inforu XML format in IncomingXML form field
+    incoming_xml = request.form.get('IncomingXML')
+    if incoming_xml:
+        try:
+            print("Parsing IncomingXML field...")
+            root = ET.fromstring(incoming_xml)
+            phone = root.findtext('PhoneNumber')
+            message = root.findtext('Message')
+        except Exception as e:
+            print(f"Error parsing IncomingXML: {e}")
 
-    # Try all common fields used by Inforu or general SMS webhooks
-    data = json_data or {}
+    # 2. Try standard form parameters if XML didn't work
+    if not phone:
+        phone = (request.args.get('Phone') or 
+                 request.form.get('Phone') or 
+                 request.args.get('from') or 
+                 request.form.get('from'))
     
-    phone = (request.args.get('Phone') or 
-             request.form.get('Phone') or 
-             request.args.get('from') or 
-             request.form.get('from') or
-             data.get('Phone') or
-             data.get('from'))
-             
-    message = (request.args.get('Text') or 
-               request.form.get('Text') or 
-               request.args.get('message') or 
-               request.form.get('message') or
-               data.get('Text') or
-               data.get('message'))
+    if not message:
+        message = (request.args.get('Text') or 
+                   request.form.get('Text') or 
+                   request.args.get('message') or 
+                   request.form.get('message'))
+
+    # 3. Handle JSON if still no luck
+    if not phone or not message:
+        try:
+            json_data = request.get_json(silent=True)
+            if json_data:
+                phone = phone or json_data.get('Phone') or json_data.get('from')
+                message = message or json_data.get('Text') or json_data.get('message')
+        except:
+            pass
                
     if phone and message:
         print(f"Webhook matched: phone={phone}, message={message}")
         process_incoming_sms(phone, message)
         return "OK", 200
     
-    print(f"Webhook failed to find data. Phone: {phone}, Message: {message}")
+    # 4. Final log if failed
+    print(f"Webhook failed. Path: {request.path}, Args: {request.args}, Form keys: {list(request.form.keys())}")
+    if not incoming_xml:
+        raw_body = request.get_data(as_text=True)
+        print(f"Raw Body: {raw_body[:200]}...")
+        
     return "No data found in request", 400
 
 def process_incoming_sms(phone, message):
