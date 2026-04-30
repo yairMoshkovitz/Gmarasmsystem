@@ -372,12 +372,41 @@ def send():
 @app.route('/webhook/inforu', methods=['GET', 'POST'], strict_slashes=False)
 @app.route('/WEBHOOK/INFORU', methods=['GET', 'POST'], strict_slashes=False)
 def inforu_webhook():
-    phone = request.args.get('Phone') or request.form.get('Phone') or request.args.get('from')
-    message = request.args.get('Text') or request.form.get('Text') or request.args.get('message')
+    # Debug logging for Railway/Inforu issues
+    print(f"--- Incoming Webhook {request.method} ---")
+    print(f"Path: {request.path}")
+    print(f"Args: {request.args}")
+    print(f"Form: {request.form}")
+    try:
+        json_data = request.get_json(silent=True)
+        print(f"JSON: {json_data}")
+    except:
+        json_data = None
+    
+    # Try all common fields used by Inforu or general SMS webhooks
+    data = json_data or {}
+    
+    phone = (request.args.get('Phone') or 
+             request.form.get('Phone') or 
+             request.args.get('from') or 
+             request.form.get('from') or
+             data.get('Phone') or
+             data.get('from'))
+             
+    message = (request.args.get('Text') or 
+               request.form.get('Text') or 
+               request.args.get('message') or 
+               request.form.get('message') or
+               data.get('Text') or
+               data.get('message'))
+               
     if phone and message:
+        print(f"Webhook matched: phone={phone}, message={message}")
         process_incoming_sms(phone, message)
         return "OK", 200
-    return "No data", 400
+    
+    print(f"Webhook failed to find data. Phone: {phone}, Message: {message}")
+    return "No data found in request", 400
 
 def process_incoming_sms(phone, message):
     receive_sms(phone, message)
