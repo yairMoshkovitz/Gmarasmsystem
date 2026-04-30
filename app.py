@@ -15,7 +15,8 @@ app = Flask(__name__)
 @app.before_request
 def basic_auth():
     # Skip auth for webhooks or other external APIs if necessary
-    if request.path.lower().startswith('/webhook/'):
+    path = request.path.lower()
+    if path.startswith('/webhook/') or path == '/webhook':
         return
 
     auth = request.headers.get('Authorization')
@@ -368,7 +369,8 @@ def send():
     process_incoming_sms(phone, message)
     return jsonify({"status": "ok"})
 
-@app.route('/webhook/inforu', methods=['GET', 'POST'])
+@app.route('/webhook/inforu', methods=['GET', 'POST'], strict_slashes=False)
+@app.route('/WEBHOOK/INFORU', methods=['GET', 'POST'], strict_slashes=False)
 def inforu_webhook():
     phone = request.args.get('Phone') or request.form.get('Phone') or request.args.get('from')
     message = request.args.get('Text') or request.form.get('Text') or request.args.get('message')
