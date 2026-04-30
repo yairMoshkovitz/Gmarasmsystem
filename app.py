@@ -17,8 +17,6 @@ def basic_auth():
     # Skip auth for webhooks or other external APIs if necessary
     if request.path.lower().startswith('/webhook/'):
         return
->>>>+++ REPLACE
-
 
     auth = request.headers.get('Authorization')
     if not auth or not auth.startswith('Basic '):
