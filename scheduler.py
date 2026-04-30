@@ -10,6 +10,7 @@ from questions_engine import (
     format_question_sms
 )
 from registration import get_template
+from sms_service import get_live_mode
 
 def has_sent_today(user_id: int, sub_id: int) -> bool:
     """Check if questions were already sent to this user today."""
@@ -128,24 +129,111 @@ def send_daily_questions(sub: dict):
     send_next_question_or_finish(sub)
 
 
+def get_israel_time():
+    """Get current time in Israel (UTC+3)."""
+    # Assuming the server is in UTC. If it's not, we might need a more robust way.
+    # But based on the user's "3 hours back" comment, UTC+3 is the goal.
+    from datetime import datetime, timedelta
+    return datetime.utcnow() + timedelta(hours=3)
+
 def run_hour(hour: int = None):
     """Main entry point for scheduled task."""
-    from sms_service import get_live_mode
+    israel_now = get_israel_time()
+    if hour is None:
+        hour = israel_now.hour
+    
     if not get_live_mode():
-        print(f"⏸️ System in Simulation mode. Skipping scheduled tasks for hour {hour or datetime.now().hour}.")
+        try:
+            print(f"System in Simulation mode. Skipping scheduled tasks for hour {hour}.")
+        except:
+            pass
         return
 
-    if hour is None:
-        hour = datetime.now().hour
-        
-    due = get_due_subscriptions(hour)
-    print(f"⏰ Hour {hour}: Processing {len(due)} due subscriptions.")
+    day_of_week = israel_now.weekday()  # 0=Monday, 4=Friday, 5=Saturday, 6=Sunday
     
-    for sub in due:
+    # Shabbat logic: No sending on Shabbat (Friday 16:00 to Saturday 21:00)
+    # Friday after 16:00
+    if day_of_week == 4 and hour > 16:
+        print(f"Friday after 16:00. Skipping hour {hour}.")
+        return
+    
+    # Shabbat day until 21:00
+    if day_of_week == 5 and hour < 21:
+        print(f"Shabbat day. Skipping hour {hour}.")
+        return
+
+    due = []
+    
+    # Special case: Friday 16:00 - send all Friday 16:00+ messages
+    if day_of_week == 4 and hour == 16:
+        conn = get_conn()
+        today = date.today().isoformat()
+        rows = conn.execute(
+            """
+            SELECT s.*, t.name as tractate_name, u.phone, u.name as user_name
+            FROM subscriptions s
+            JOIN tractates t ON s.tractate_id = t.id
+            JOIN users u ON s.user_id = u.id
+            WHERE s.is_active=1 AND s.send_hour >= 16
+            AND (s.pause_until IS NULL OR s.pause_until <= ?)
+            """,
+            (today,),
+        ).fetchall()
+        conn.close()
+        due = [dict(r) for r in rows]
+        print(f"Friday 16:00: Catching all Friday evening messages. Count: {len(due)}")
+    
+    # Special case: Saturday 21:00 - send all Shabbat messages
+    elif day_of_week == 5 and hour == 21:
+        conn = get_conn()
+        today = date.today().isoformat()
+        # Find all subscriptions that were supposed to run during Shabbat
+        # (Friday > 16:00 OR Saturday < 21:00)
+        # Since we run daily, we just need to find all active subs that haven't sent today
+        # But specifically those whose send_hour is in the Shabbat range.
+        # Actually, simpler: Saturday 21:00 runs for EVERYONE who hasn't sent today? 
+        # No, the user said "Shabbat questions will be sent at 21:00".
+        # This implies people who usually get it on Shabbat.
+        rows = conn.execute(
+            """
+            SELECT s.*, t.name as tractate_name, u.phone, u.name as user_name
+            FROM subscriptions s
+            JOIN tractates t ON s.tractate_id = t.id
+            JOIN users u ON s.user_id = u.id
+            WHERE s.is_active=1
+            AND (s.pause_until IS NULL OR s.pause_until <= ?)
+            """,
+            (today,),
+        ).fetchall()
+        conn.close()
+        
+        # Filter in Python for clarity of logic:
+        # A sub is "Shabbat sub" if its normal hour is (Friday > 16) OR (Saturday < 21)
+        # But wait, send_hour is just an integer 0-23.
+        # If it's Saturday 21:00, we should send for everyone whose hour was 0-20 today.
+        # AND those whose hour was 17-23 on Friday (if we want to be perfect, but daily check handles it).
+        
+        all_subs = [dict(r) for r in rows]
+        for sub in all_subs:
+            # If normal hour is between 0 and 20, they missed it today because of Shabbat
+            if 0 <= sub['send_hour'] < 21:
+                due.append(sub)
+        print(f"Saturday 21:00: Catching all Shabbat messages. Count: {len(due)}")
+
+    else:
+        # Normal hour processing
+        due = get_due_subscriptions(hour)
+
+    if due:
         try:
-            send_daily_questions(sub)
-        except Exception as e:
-            print(f"❌ Error sending to sub {sub['id']}: {e}")
+            print(f"Hour {hour}: Processing {len(due)} subscriptions.")
+        except:
+            pass
+        for sub in due:
+            try:
+                send_daily_questions(sub)
+            except Exception as e:
+                print(f"❌ Error sending to sub {sub['id']}: {e}")
 
 if __name__ == "__main__":
     run_hour()

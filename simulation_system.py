@@ -223,6 +223,12 @@ def handle_registered_user(phone, user, message):
     elif message == '6':
         USER_STATES[phone] = {"state": "AWAITING_REG_STEP_2"}
         send_sms(phone, get_template("registration_step_2_instructions", name=user["name"]))
+    elif message == '7':
+        conn = get_conn()
+        conn.execute("UPDATE subscriptions SET is_active=0 WHERE user_id=?", (user["id"],))
+        conn.commit()
+        conn.close()
+        send_sms(phone, get_template("unsubscribe_success"))
     elif message.lower() in ["כן", "לא", "ידעתי", "לא ידעתי"]:
         conn = get_conn()
         last_q = conn.execute(

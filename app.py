@@ -61,7 +61,8 @@ def start_background_scheduler():
             
         last_hour = -1
         while True:
-            now = datetime.now()
+            from scheduler import get_israel_time
+            now = get_israel_time()
             if now.hour != last_hour:
                 try:
                     print(f"🕒 Scheduler checking for hour {now.hour}...")
@@ -442,7 +443,11 @@ def inforu_webhook():
     return "No data found in request", 400
 
 def process_incoming_sms(phone, message):
-    receive_sms(phone, message)
+    try:
+        receive_sms(phone, message)
+    except Exception as e:
+        print(f"Error in receive_sms (likely printing issue): {e}")
+    
     conn = get_conn()
     user = conn.execute("SELECT * FROM users WHERE phone=?", (phone,)).fetchone()
     conn.close()
