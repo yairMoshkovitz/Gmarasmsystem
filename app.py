@@ -377,12 +377,16 @@ def inforu_webhook():
     print(f"Path: {request.path}")
     print(f"Args: {request.args}")
     print(f"Form: {request.form}")
+    
+    raw_data = request.get_data(as_text=True)
+    print(f"Raw Body: {raw_data}")
+    
     try:
         json_data = request.get_json(silent=True)
         print(f"JSON: {json_data}")
     except:
         json_data = None
-    
+
     # Try all common fields used by Inforu or general SMS webhooks
     data = json_data or {}
     
