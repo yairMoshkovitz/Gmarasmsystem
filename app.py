@@ -54,12 +54,19 @@ except Exception as e:
 # Background scheduler thread
 def start_background_scheduler():
     def scheduler_loop():
-        print("🚀 Background Scheduler Started.")
+        try:
+            print("Background Scheduler Started.")
+        except:
+            pass
+            
         last_hour = -1
         while True:
             now = datetime.now()
             if now.hour != last_hour:
-                print(f"🕒 Scheduler checking for hour {now.hour}...")
+                try:
+                    print(f"🕒 Scheduler checking for hour {now.hour}...")
+                except:
+                    pass
                 run_hour(now.hour)
                 last_hour = now.hour
             time.sleep(60)
@@ -403,15 +410,24 @@ def inforu_webhook():
                    request.args.get('message') or 
                    request.form.get('message'))
 
-    # 3. Handle JSON if still no luck
+    # 3. Handle JSON if still no luck (Inforu sometimes sends JSON body)
     if not phone or not message:
         try:
             json_data = request.get_json(silent=True)
             if json_data:
-                phone = phone or json_data.get('Phone') or json_data.get('from')
-                message = message or json_data.get('Text') or json_data.get('message')
-        except:
-            pass
+                print("Checking JSON formats...")
+                # Try Inforu's specific nested JSON format
+                # Format: {"CustomerId":..., "Data": [{"Type": "PhoneNumber", "Value": "058...", "Message": "..."}]}
+                if 'Data' in json_data and isinstance(json_data['Data'], list) and len(json_data['Data']) > 0:
+                    item = json_data['Data'][0]
+                    phone = phone or item.get('Value')
+                    message = message or item.get('Message')
+                
+                # Try flat JSON
+                phone = phone or json_data.get('Phone') or json_data.get('from') or json_data.get('PhoneNumber')
+                message = message or json_data.get('Text') or json_data.get('message') or json_data.get('Message')
+        except Exception as e:
+            print(f"Error checking JSON: {e}")
                
     if phone and message:
         print(f"Webhook matched: phone={phone}, message={message}")
@@ -420,9 +436,8 @@ def inforu_webhook():
     
     # 4. Final log if failed
     print(f"Webhook failed. Path: {request.path}, Args: {request.args}, Form keys: {list(request.form.keys())}")
-    if not incoming_xml:
-        raw_body = request.get_data(as_text=True)
-        print(f"Raw Body: {raw_body[:200]}...")
+    raw_body = request.get_data(as_text=True)
+    print(f"Raw Body: {raw_body[:200]}...")
         
     return "No data found in request", 400
 
