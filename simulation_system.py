@@ -163,7 +163,7 @@ def handle_registered_user(phone, user, message):
                 send_sms(phone, get_template("tractate_not_found", tractate=message.split()[0] if message.split() else message))
                 return
 
-        if state_info["state"] in ("AWAITING_UPDATE_DAF", "AWAITING_PAUSE_DAYS", "AWAITING_NEW_HOUR", "AWAITING_UNSUBSCRIBE"):
+        if state_info["state"] in ("AWAITING_UPDATE_DAF", "AWAITING_PAUSE_DAYS", "AWAITING_NEW_HOUR", "AWAITING_UNSUBSCRIBE", "AWAITING_RESUME"):
             subs = get_user_subscriptions(user['id'])
             if not subs:
                 send_sms(phone, "אין לך מנויים פעילים.")
@@ -188,6 +188,7 @@ def handle_registered_user(phone, user, message):
                 return
 
             sub = subs[sub_index]
+            sub_range = f"({float_to_daf_str(sub['start_daf'])} - {float_to_daf_str(sub['end_daf'])})"
             
             if state_info["state"] == "AWAITING_UPDATE_DAF":
                 if not action_value:
@@ -199,7 +200,7 @@ def handle_registered_user(phone, user, message):
                     conn.execute("UPDATE subscriptions SET current_daf=? WHERE id=?", (new_daf_f, sub["id"]))
                     conn.commit()
                     conn.close()
-                    send_sms(phone, f"מנוי {sub['tractate_name']} עודכן ל-{float_to_daf_str(new_daf_f)}!")
+                    send_sms(phone, f"מנוי {sub['tractate_name']} {sub_range} עודכן ל-{float_to_daf_str(new_daf_f)}!")
                     del USER_STATES[phone]
                 except:
                     send_sms(phone, "פורמט דף לא תקין. נסה שוב.")
@@ -215,7 +216,7 @@ def handle_registered_user(phone, user, message):
                 conn.execute("UPDATE subscriptions SET pause_until=? WHERE id=?", (until_date.isoformat(), sub["id"]))
                 conn.commit()
                 conn.close()
-                send_sms(phone, f"מנוי {sub['tractate_name']} הוקפא ל-{days} ימים.")
+                send_sms(phone, f"מנוי {sub['tractate_name']} {sub_range} הוקפא ל-{days} ימים.")
                 del USER_STATES[phone]
                 return
 
@@ -229,7 +230,7 @@ def handle_registered_user(phone, user, message):
                     conn.execute("UPDATE subscriptions SET send_hour=? WHERE id=?", (hour, sub["id"]))
                     conn.commit()
                     conn.close()
-                    send_sms(phone, f"שעת השליחה למנוי {sub['tractate_name']} עודכנה ל-{hour}:00.")
+                    send_sms(phone, f"שעת השליחה למנוי {sub['tractate_name']} {sub_range} עודכנה ל-{hour}:00.")
                     del USER_STATES[phone]
                 else:
                     send_sms(phone, "שעה לא תקינה (0-23).")
@@ -240,7 +241,16 @@ def handle_registered_user(phone, user, message):
                 conn.execute("UPDATE subscriptions SET is_active=0 WHERE id=?", (sub["id"],))
                 conn.commit()
                 conn.close()
-                send_sms(phone, f"המנוי ל{sub['tractate_name']} בוטל בהצלחה.")
+                send_sms(phone, f"המנוי ל{sub['tractate_name']} {sub_range} בוטל בהצלחה.")
+                del USER_STATES[phone]
+                return
+
+            if state_info["state"] == "AWAITING_RESUME":
+                conn = get_conn()
+                conn.execute("UPDATE subscriptions SET pause_until=NULL WHERE id=?", (sub["id"],))
+                conn.commit()
+                conn.close()
+                send_sms(phone, f"ההקפאה למנוי {sub['tractate_name']} {sub_range} בוטלה. נמשיך בלימוד!")
                 del USER_STATES[phone]
                 return
 
@@ -272,11 +282,16 @@ def handle_registered_user(phone, user, message):
             USER_STATES[phone] = {"state": "AWAITING_PAUSE_DAYS"}
             send_sms(phone, get_template("ask_pause_days"))
     elif message == '4':
-        conn = get_conn()
-        conn.execute("UPDATE subscriptions SET pause_until=NULL WHERE user_id=? AND is_active=1", (user["id"],))
-        conn.commit()
-        conn.close()
-        send_sms(phone, get_template("resume_success"))
+        subs = get_user_subscriptions(user['id'])
+        if len(subs) > 1:
+            USER_STATES[phone] = {"state": "AWAITING_RESUME"}
+            send_sms(phone, get_template("choose_subscription_resume", menu=get_subs_menu(subs)))
+        else:
+            conn = get_conn()
+            conn.execute("UPDATE subscriptions SET pause_until=NULL WHERE user_id=? AND is_active=1", (user["id"],))
+            conn.commit()
+            conn.close()
+            send_sms(phone, get_template("resume_success"))
     elif message == '5':
         subs = get_user_subscriptions(user['id'])
         if len(subs) > 1:
