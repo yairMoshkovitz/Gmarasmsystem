@@ -147,6 +147,13 @@ def init_db():
             if not cur.fetchone():
                 print("Migrating subscriptions table (Postgres)...")
                 cur.execute("ALTER TABLE subscriptions ADD COLUMN pause_until DATE")
+            
+            # Remove UNIQUE constraint in Postgres
+            try:
+                cur.execute("ALTER TABLE subscriptions DROP CONSTRAINT IF EXISTS subscriptions_user_id_tractate_id_key")
+            except Exception as e:
+                print(f"Postgres constraint removal notice: {e}")
+
             conn.conn.commit()
             cur.close()
         else:
@@ -165,6 +172,18 @@ def init_db():
             if 'pause_until' not in cols:
                 print("Migrating subscriptions table (SQLite)...")
                 conn.execute("ALTER TABLE subscriptions ADD COLUMN pause_until DATE")
+            
+            # Check for UNIQUE constraint in SQLite (Multi-tractate migration)
+            cur.execute("PRAGMA index_list(subscriptions)")
+            indexes = cur.fetchall()
+            has_unique = any(idx[1].startswith('sqlite_autoindex_subscriptions') or idx[2] == 1 for idx in indexes)
+            if has_unique:
+                print("Removing UNIQUE constraint from subscriptions (SQLite)...")
+                cur.execute("CREATE TABLE subscriptions_new (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL REFERENCES users(id), tractate_id INTEGER NOT NULL REFERENCES tractates(id), start_daf INTEGER NOT NULL DEFAULT 2, end_daf INTEGER NOT NULL, current_daf REAL NOT NULL DEFAULT 2.0, dafim_per_day REAL NOT NULL DEFAULT 1.0, send_hour INTEGER NOT NULL DEFAULT 8, is_active INTEGER DEFAULT 1, pause_until DATE, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
+                cur.execute("INSERT INTO subscriptions_new (id, user_id, tractate_id, start_daf, end_daf, current_daf, dafim_per_day, send_hour, is_active, pause_until, created_at) SELECT id, user_id, tractate_id, start_daf, end_daf, current_daf, dafim_per_day, send_hour, is_active, pause_until, created_at FROM subscriptions")
+                cur.execute("DROP TABLE subscriptions")
+                cur.execute("ALTER TABLE subscriptions_new RENAME TO subscriptions")
+            
             conn.commit()
     except Exception as e:
         print(f"Migration notice: {e}")

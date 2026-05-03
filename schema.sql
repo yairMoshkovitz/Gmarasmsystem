@@ -31,8 +31,7 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     send_hour INTEGER NOT NULL DEFAULT 8,   -- hour to send (0-23)
     is_active INTEGER DEFAULT 1,
     pause_until DATE,                      -- date until which the subscription is paused
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(user_id, tractate_id)
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS sent_questions (

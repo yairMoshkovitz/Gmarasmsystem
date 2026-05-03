@@ -158,22 +158,30 @@ def subscribe(
         conn.close()
         raise ValueError(f"Tractate ID {tractate_id} not found.")
 
-    # Deactivate existing subscription for same tractate
-    conn.execute(
-        "DELETE FROM subscriptions WHERE user_id=? AND tractate_id=?",
-        (user_id, tractate_id),
-    )
+    # Check for existing subscription with same tractate and range
+    existing = conn.execute(
+        "SELECT id FROM subscriptions WHERE user_id=? AND tractate_id=? AND start_daf=? AND end_daf=? AND is_active=1",
+        (user_id, tractate_id, int(start_daf), end_daf),
+    ).fetchone()
 
-    conn.execute(
-        """
-        INSERT INTO subscriptions
-          (user_id, tractate_id, start_daf, end_daf, current_daf, dafim_per_day, send_hour, is_active)
-        VALUES (?,?,?,?,?,?,?,1)
-        """,
-        (user_id, tractate_id, int(start_daf), end_daf, start_daf, rate, hour),
-    )
+    if existing:
+        # Update existing instead of creating new
+        conn.execute(
+            "UPDATE subscriptions SET current_daf=?, dafim_per_day=?, send_hour=? WHERE id=?",
+            (start_daf, rate, hour, existing["id"]),
+        )
+        sub_id = existing["id"]
+    else:
+        conn.execute(
+            """
+            INSERT INTO subscriptions
+              (user_id, tractate_id, start_daf, end_daf, current_daf, dafim_per_day, send_hour, is_active)
+            VALUES (?,?,?,?,?,?,?,1)
+            """,
+            (user_id, tractate_id, int(start_daf), end_daf, start_daf, rate, hour),
+        )
+        sub_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
     conn.commit()
-    sub_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
     conn.close()
 
     # Fetch user info

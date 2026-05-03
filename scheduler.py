@@ -132,9 +132,20 @@ def send_daily_questions(sub: dict):
 def get_israel_time():
     """Get current time in Israel (UTC+3)."""
     # Assuming the server is in UTC. If it's not, we might need a more robust way.
-    # But based on the user's "3 hours back" comment, UTC+3 is the goal.
+    # But based on the user's "3 hours back" c
+    # ent, UTC+3 is the goal.
     from datetime import datetime, timedelta
     return datetime.utcnow() + timedelta(hours=3)
+
+def has_pending_question(user_id: int) -> bool:
+    """Check if the user has any question that hasn't been answered yet."""
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT id FROM sent_questions WHERE user_id=? AND responded_at IS NULL LIMIT 1",
+        (user_id,)
+    ).fetchone()
+    conn.close()
+    return row is not None
 
 def run_hour(hour: int = None):
     """Main entry point for scheduled task."""
@@ -231,6 +242,10 @@ def run_hour(hour: int = None):
             pass
         for sub in due:
             try:
+                # Multi-subscription check: Wait if there's a pending answer
+                if has_pending_question(sub["user_id"]):
+                    print(f"User {sub['user_id']} has pending questions. Skipping sub {sub['id']} for now.")
+                    continue
                 send_daily_questions(sub)
             except Exception as e:
                 print(f"❌ Error sending to sub {sub['id']}: {e}")
