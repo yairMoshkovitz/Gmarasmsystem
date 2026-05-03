@@ -260,6 +260,8 @@ def edit_templates():
 @app.route('/api/templates', methods=['GET', 'POST'])
 def manage_templates():
     from registration import clear_template_cache
+    template_path = os.path.join(os.path.dirname(__file__), 'sms_templates.json')
+    
     if request.method == 'POST':
         data = request.json
         conn = get_conn()
@@ -274,6 +276,22 @@ def manage_templates():
                 conn.execute("INSERT OR REPLACE INTO sms_templates (key, content, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)", (key, content))
         conn.commit()
         conn.close()
+        
+        # Also update JSON file
+        try:
+            current_json = {}
+            if os.path.exists(template_path):
+                with open(template_path, 'r', encoding='utf-8') as f:
+                    current_json = json.load(f)
+            
+            # Update with new data
+            current_json.update(data)
+            
+            with open(template_path, 'w', encoding='utf-8') as f:
+                json.dump(current_json, f, ensure_ascii=False, indent=4)
+        except Exception as e:
+            print(f"Error updating JSON file: {e}")
+
         clear_template_cache()
         return jsonify({"status": "success"})
     
@@ -360,6 +378,34 @@ def sync_templates():
     conn.close()
     clear_template_cache()
     return jsonify({"status": "success"})
+
+@app.route('/api/templates/sync-to-json', methods=['POST'])
+def sync_templates_to_json():
+    data = request.json
+    keys = data.get('keys', []) # List of keys to sync from DB to JSON
+    
+    conn = get_conn()
+    rows = conn.execute("SELECT key, content FROM sms_templates").fetchall()
+    conn.close()
+    db_templates = {r["key"]: r["content"] for r in rows}
+    
+    template_path = os.path.join(os.path.dirname(__file__), 'sms_templates.json')
+    try:
+        current_json = {}
+        if os.path.exists(template_path):
+            with open(template_path, 'r', encoding='utf-8') as f:
+                current_json = json.load(f)
+        
+        for key in keys:
+            if key in db_templates:
+                current_json[key] = db_templates[key]
+        
+        with open(template_path, 'w', encoding='utf-8') as f:
+            json.dump(current_json, f, ensure_ascii=False, indent=4)
+            
+        return jsonify({"status": "success"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/history')
 def history():
