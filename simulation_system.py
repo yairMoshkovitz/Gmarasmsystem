@@ -17,6 +17,14 @@ def clear_screen():
 
 def handle_unregistered_user(phone, message):
     state_info = USER_STATES.get(phone)
+
+    # Global "0" handler to reset state/cancel registration
+    if message == "0":
+        if phone in USER_STATES:
+            del USER_STATES[phone]
+        send_sms(phone, get_template("unregistered_instructions"))
+        return
+
     if state_info and state_info["state"] == "AWAITING_REG_STEP_2":
         # We handle this in handle_registered_user since user is already created after step 1
         return
@@ -49,6 +57,13 @@ def get_subs_menu(subs):
 
 def handle_registered_user(phone, user, message):
     state_info = USER_STATES.get(phone)
+
+    # Global "0" handler to return to main menu
+    if message == "0":
+        if phone in USER_STATES:
+            del USER_STATES[phone]
+        send_sms(phone, get_template(template_name="main_menu", name=user["name"]))
+        return
     
     if state_info:
         if state_info["state"] == "AWAITING_REG_STEP_2":

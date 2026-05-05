@@ -122,7 +122,7 @@ def send_daily_questions(sub: dict):
     """Select and send the FIRST question for a single subscription."""
     # Safety check: don't send twice in the same calendar day (initial trigger)
     if has_sent_today(sub["user_id"], sub["id"]):
-        print(f"Skipping sub {sub['id']} - already sent today.")
+        # print(f"Skipping sub {sub['id']} - already sent today.")
         return
 
     # Try to send the first question
@@ -137,13 +137,22 @@ def get_israel_time():
     from datetime import datetime, timedelta
     return datetime.utcnow() + timedelta(hours=3)
 
-def has_pending_question(user_id: int) -> bool:
-    """Check if the user has any question that hasn't been answered yet."""
+def has_pending_question(user_id: int, same_day_only: bool = False) -> bool:
+    """
+    Check if the user has any question that hasn't been answered yet.
+    If same_day_only is True, only check for questions sent today.
+    """
     conn = get_conn()
-    row = conn.execute(
-        "SELECT id FROM sent_questions WHERE user_id=? AND responded_at IS NULL LIMIT 1",
-        (user_id,)
-    ).fetchone()
+    query = "SELECT id FROM sent_questions WHERE user_id=? AND responded_at IS NULL"
+    params = [user_id]
+    
+    if same_day_only:
+        today_start = date.today().isoformat() + "T00:00:00"
+        query += " AND sent_at >= ?"
+        params.append(today_start)
+        
+    query += " LIMIT 1"
+    row = conn.execute(query, params).fetchone()
     conn.close()
     return row is not None
 
@@ -242,9 +251,11 @@ def run_hour(hour: int = None):
             pass
         for sub in due:
             try:
-                # Multi-subscription check: Wait if there's a pending answer
-                if has_pending_question(sub["user_id"]):
-                    print(f"User {sub['user_id']} has pending questions. Skipping sub {sub['id']} for now.")
+                # Multi-subscription check: 
+                # On the scheduled hour, we only skip if there's a pending question FROM TODAY.
+                # This allows sending the first question of a new day even if yesterday wasn't answered.
+                if has_pending_question(sub["user_id"], same_day_only=True):
+                    print(f"User {sub['user_id']} already has a pending question from today. Skipping sub {sub['id']} for now.")
                     continue
                 send_daily_questions(sub)
             except Exception as e:
