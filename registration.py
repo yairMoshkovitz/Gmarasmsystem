@@ -60,7 +60,24 @@ def get_template(template_name_pos=None, **kwargs):
         return f"Template {template_name} not found"
         
     try:
-        return template_content.format(**kwargs)
+        formatted_content = template_content.format(**kwargs)
+        
+        # Auto-append menu_footer for relevant templates
+        footer_templates = [
+            "ask_update_daf", "ask_pause_days", "ask_new_hour", 
+            "unregistered_instructions", "registration_step_2_instructions",
+            "choose_subscription_update_daf", "choose_subscription_pause",
+            "choose_subscription_hour", "choose_subscription_unsubscribe",
+            "choose_subscription_resume", "error_parsing_registration",
+            "tractate_not_found", "tractate_not_supported"
+        ]
+        
+        if template_name in footer_templates:
+            footer = get_template("menu_footer")
+            if footer and "Template menu_footer not found" not in footer:
+                formatted_content += footer
+                
+        return formatted_content
     except Exception as e:
         return f"Template {template_name} format error: {e}"
 
