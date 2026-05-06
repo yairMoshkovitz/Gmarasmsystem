@@ -15,7 +15,7 @@ from sms_service import get_live_mode
 def has_sent_today(user_id: int, sub_id: int) -> bool:
     """Check if questions were already sent to this user today."""
     conn = get_conn()
-    today_start = date.today().isoformat() + "T00:00:00"
+    today_start = date.today().isoformat() + " 00:00:00"
     row = conn.execute(
         "SELECT id FROM sent_questions WHERE user_id=? AND subscription_id=? AND sent_at >= ? LIMIT 1",
         (user_id, sub_id, today_start)
@@ -75,9 +75,10 @@ def send_next_question_or_finish(sub: dict):
     Check for the next question to send in the current range.
     If no more questions (or reached daily limit), send the 'tomorrow study' message.
     """
+    from simulation_system import USER_STATES
     # 1. Check daily limit (e.g., 2 questions per day)
     conn = get_conn()
-    today_start = date.today().isoformat() + "T00:00:00"
+    today_start = date.today().isoformat() + " 00:00:00"
     count_row = conn.execute(
         "SELECT COUNT(*) FROM sent_questions WHERE subscription_id=? AND sent_at >= ?",
         (sub["id"], today_start)
@@ -112,6 +113,10 @@ def send_next_question_or_finish(sub: dict):
         
         msg = format_question_sms(q, 1, sub["tractate_name"])
         send_sms(sub["phone"], msg, sub["user_id"])
+        
+        # Set AWAITING_ANSWER state
+        USER_STATES[sub['phone']] = {"state": "AWAITING_ANSWER"}
+        
         return True
     else:
         # No more questions in range for today
@@ -147,7 +152,7 @@ def has_pending_question(user_id: int, same_day_only: bool = False) -> bool:
     params = [user_id]
     
     if same_day_only:
-        today_start = date.today().isoformat() + "T00:00:00"
+        today_start = date.today().isoformat() + " 00:00:00"
         query += " AND sent_at >= ?"
         params.append(today_start)
         

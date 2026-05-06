@@ -16,14 +16,14 @@ def clear_screen():
     os.system('cls' if os.name == 'nt' else 'clear')
 
 def handle_unregistered_user(phone, message):
-    state_info = USER_STATES.get(phone)
-
     # Global "0" handler to reset state/cancel registration
-    if message == "0":
+    if message.strip() == "0":
         if phone in USER_STATES:
             del USER_STATES[phone]
         send_sms(phone, get_template("unregistered_instructions"))
         return
+
+    state_info = USER_STATES.get(phone)
 
     if state_info and state_info["state"] == "AWAITING_REG_STEP_2":
         # We handle this in handle_registered_user since user is already created after step 1
@@ -56,16 +56,68 @@ def get_subs_menu(subs):
     return "\n".join(lines)
 
 def handle_registered_user(phone, user, message):
-    state_info = USER_STATES.get(phone)
-
     # Global "0" handler to return to main menu
-    if message == "0":
+    clean_msg = message.strip().lower()
+    if clean_msg == "0":
         if phone in USER_STATES:
+            print(f"DEBUG: Resetting state for {phone} (was {USER_STATES[phone]['state']})")
             del USER_STATES[phone]
+        else:
+            print(f"DEBUG: No state to reset for {phone}")
         send_sms(phone, get_template(template_name="main_menu", name=user["name"]))
         return
-    
+
+    state_info = USER_STATES.get(phone)
+    print(f"DEBUG: Processing message '{clean_msg}' for phone {phone}, current state: {state_info['state'] if state_info else 'None'}")
+
+    # NEW ARCHITECTURE: Check STATE first. Everything depends on the current active process.
     if state_info:
+        # 1. State: AWAITING_ANSWER
+        if state_info["state"] == "AWAITING_ANSWER":
+            # The user is in the middle of answering a question. 
+            # We don't try to parse anything else until they answer or press 0.
+            
+            # Clean punctuation from the end to support "כן." or "לא," etc.
+            stripped_msg = clean_msg.strip(".,!?\"'")
+            
+            if stripped_msg in ["כן", "לא", "ידעתי", "לא ידעתי", "כ", "ל"]:
+                conn = get_conn()
+                last_q = conn.execute(
+                    "SELECT id, subscription_id, question_text FROM sent_questions WHERE user_id=? AND responded_at IS NULL ORDER BY sent_at DESC LIMIT 1", 
+                    (user["id"],)
+                ).fetchone()
+                
+                if last_q:
+                    conn.execute("UPDATE sent_questions SET responded_at=?, response_text=? WHERE id=?", (datetime.now().isoformat(), message, last_q["id"]))
+                    conn.commit()
+                    
+                    sub_id = last_q["subscription_id"]
+                    sub_row = conn.execute(
+                        "SELECT s.*, t.name as tractate_name, u.phone, u.name as user_name "
+                        "FROM subscriptions s "
+                        "JOIN tractates t ON s.tractate_id = t.id "
+                        "JOIN users u ON s.user_id = u.id "
+                        "WHERE s.id=?", (sub_id,)
+                    ).fetchone()
+                    conn.close()
+                    
+                    if sub_row:
+                        del USER_STATES[phone] # Clear answer state
+                        from scheduler import send_next_question_or_finish
+                        send_next_question_or_finish(dict(sub_row))
+                        return
+                
+                # Fallback if DB didn't have the question for some reason
+                conn.close()
+                del USER_STATES[phone]
+                send_sms(phone, "לא מצאתי שאלה פתוחה לשייך אליה את התשובה. חזרנו לתפריט הראשי.")
+                return
+            else:
+                # User sent something else while we wait for an answer
+                send_sms(phone, "כדי לענות על השאלה יש לשלוח 'כן' או 'לא'.\nלחזרה לתפריט הראשי ולביטול השאלה שלח 0.")
+                return
+
+        # 2. State: AWAITING_REG_STEP_2
         if state_info["state"] == "AWAITING_REG_STEP_2":
             # New flexible parsing logic: Masechta [Range] [Rate] [Hour]
             match_obj, matched_text, is_in_db = find_tractate_by_name(message)
@@ -329,33 +381,6 @@ def handle_registered_user(phone, user, message):
             conn.commit()
             conn.close()
             send_sms(phone, get_template("unsubscribe_success"))
-    elif message.lower() in ["כן", "לא", "ידעתי", "לא ידעתי"]:
-        conn = get_conn()
-        last_q = conn.execute(
-            "SELECT id, subscription_id FROM sent_questions WHERE user_id=? AND responded_at IS NULL ORDER BY sent_at ASC LIMIT 1", 
-            (user["id"],)
-        ).fetchone()
-        
-        if last_q:
-            conn.execute("UPDATE sent_questions SET responded_at=?, response_text=? WHERE id=?", (datetime.now().isoformat(), message, last_q["id"]))
-            conn.commit()
-            
-            sub_id = last_q["subscription_id"]
-            sub_row = conn.execute(
-                "SELECT s.*, t.name as tractate_name, u.phone, u.name as user_name "
-                "FROM subscriptions s "
-                "JOIN tractates t ON s.tractate_id = t.id "
-                "JOIN users u ON s.user_id = u.id "
-                "WHERE s.id=?", (sub_id,)
-            ).fetchone()
-            conn.close()
-            
-            if sub_row:
-                from scheduler import send_next_question_or_finish
-                send_next_question_or_finish(dict(sub_row))
-        else:
-            conn.close()
-            send_sms(phone, "לא מצאתי שאלה פתוחה לשייך אליה את התשובה. וודא שקיבלת שאלה היום.")
     else:
         send_sms(phone, get_template(template_name="main_menu", name=user["name"]))
 
