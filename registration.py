@@ -189,6 +189,12 @@ def subscribe(
         )
         sub_id = existing["id"]
     else:
+        # Limit to 5 active subscriptions
+        count = conn.execute("SELECT COUNT(*) FROM subscriptions WHERE user_id=? AND is_active=1", (user_id,)).fetchone()[0]
+        if count >= 5:
+            conn.close()
+            raise ValueError("ניתן להירשם לעד 5 מסכתות במקביל.")
+
         conn.execute(
             """
             INSERT INTO subscriptions

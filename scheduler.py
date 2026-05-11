@@ -53,22 +53,88 @@ def advance_subscription(sub_id: int, dafim_per_day: float):
     conn.commit()
     conn.close()
 
-def finish_subscription_day(sub: dict):
-    """Send finishing messages and advance daf."""
-    # 1. Send "Tomorrow's Study" message
-    start_f = sub["current_daf"]
-    next_start = start_f + sub["dafim_per_day"]
-    next_end = next_start + sub["dafim_per_day"] - 0.5
+def format_sub_status(sub: dict) -> str:
+    """Format a standard status line for a subscription using sub_status_info template."""
+    next_start = sub["current_daf"]
+    # If it was just advanced, current_daf is already tomorrow's
+    # But usually we call this AFTER advance_subscription or when checking status
     
+    next_end = next_start + sub["dafim_per_day"] - 0.5
     study_range = f"{float_to_daf_str(next_start)}"
     if sub["dafim_per_day"] > 0.5:
         study_range += f" עד {float_to_daf_str(next_end)}"
-        
-    tomorrow_msg = get_template("tomorrow_study", next_study=study_range)
-    send_sms(sub["phone"], tomorrow_msg, sub["user_id"])
     
-    # 2. Advance to next day
+    sub_range = f"{float_to_daf_str(sub['start_daf'])} - {float_to_daf_str(sub['end_daf'])}"
+    
+    return get_template("sub_status_info", 
+                        tractate_name=sub['tractate_name'],
+                        range=sub_range,
+                        next_study=study_range,
+                        hour=sub["send_hour"])
+
+def finish_subscription_day(sub: dict):
+    """Send finishing messages and advance daf."""
+    from simulation_system import USER_STATES
+    
+    def _get_local_subs_menu(subs):
+        lines = []
+        for i, s in enumerate(subs, 1):
+            range_str = f"({float_to_daf_str(s['start_daf'])} - {float_to_daf_str(s['end_daf'])})"
+            lines.append(f"{i}. {s['tractate_name']} {range_str}")
+        return "\n".join(lines)
+
+    # 1. Advance to next day FIRST so we can show tomorrow's study correctly
     advance_subscription(sub["id"], sub["dafim_per_day"])
+    
+    # Check if there are other subscriptions in the queue for this session
+    state_info = USER_STATES.get(sub["phone"])
+    if state_info and state_info["state"] == "PROCESSING_QUESTION_QUEUE":
+        queue = state_info.get("queue", [])
+        if queue:
+            # Still more tractates in queue
+            if len(queue) >= 2:
+                # Refresh subs data from DB to get latest tractate names/ranges
+                conn = get_conn()
+                due_subs = []
+                for s_id in queue:
+                    r = conn.execute(
+                        "SELECT s.*, t.name as tractate_name FROM subscriptions s JOIN tractates t ON s.tractate_id = t.id WHERE s.id=?", (s_id,)
+                    ).fetchone()
+                    if r: due_subs.append(dict(r))
+                conn.close()
+                
+                msg = get_template("queue_next_menu", menu=_get_local_subs_menu(due_subs))
+                send_sms(sub["phone"], msg, sub["user_id"])
+                # State remains PROCESSING_QUESTION_QUEUE
+            else:
+                # Only 1 left, send it directly
+                last_sub_id = queue.pop(0)
+                conn = get_conn()
+                last_sub = conn.execute(
+                    "SELECT s.*, t.name as tractate_name, u.phone, u.name as user_name FROM subscriptions s JOIN tractates t ON s.tractate_id = t.id JOIN users u ON s.user_id = u.id WHERE s.id=?", (last_sub_id,)
+                ).fetchone()
+                conn.close()
+                
+                if last_sub:
+                    last_sub = dict(last_sub)
+                    range_str = f"{last_sub['tractate_name']} ({float_to_daf_str(last_sub['start_daf'])} - {float_to_daf_str(last_sub['end_daf'])})"
+                    msg = get_template("queue_last_one", finished_tractate=sub["tractate_name"], next_tractate=range_str)
+                    send_sms(sub["phone"], msg, sub["user_id"])
+                    send_next_question_or_finish(last_sub)
+            return
+
+    # No queue or queue finished - Send "Study Closure" message
+    # Refresh sub data to get updated current_daf (which was advanced)
+    conn = get_conn()
+    updated_sub = conn.execute(
+        "SELECT s.*, t.name as tractate_name FROM subscriptions s JOIN tractates t ON s.tractate_id = t.id WHERE s.id=?", (sub["id"],)
+    ).fetchone()
+    conn.close()
+    
+    if updated_sub:
+        status_line = format_sub_status(dict(updated_sub))
+        closure_msg = get_template("study_closure", sub_info=status_line)
+        send_sms(sub["phone"], closure_msg, sub["user_id"])
 
 def send_next_question_or_finish(sub: dict):
     """
@@ -120,7 +186,31 @@ def send_next_question_or_finish(sub: dict):
         return True
     else:
         # No more questions in range for today
-        finish_subscription_day(sub)
+        # Check if we should send the "no questions today" message instead of just the closure
+        if count_row[0] == 0:
+            # First attempt today and no questions found
+            # Advance for tomorrow
+            advance_subscription(sub["id"], sub["dafim_per_day"])
+            
+            # Refresh sub data to get updated current_daf
+            conn = get_conn()
+            updated_sub = conn.execute(
+                "SELECT s.*, t.name as tractate_name FROM subscriptions s JOIN tractates t ON s.tractate_id = t.id WHERE s.id=?", (sub["id"],)
+            ).fetchone()
+            conn.close()
+            
+            if updated_sub:
+                updated_sub = dict(updated_sub)
+                next_start = updated_sub["current_daf"]
+                next_end = next_start + updated_sub["dafim_per_day"] - 0.5
+                study_range = f"{float_to_daf_str(next_start)}"
+                if updated_sub["dafim_per_day"] > 0.5:
+                    study_range += f" עד {float_to_daf_str(next_end)}"
+                
+                msg = get_template("no_questions_today", next_study=study_range, hour=updated_sub["send_hour"])
+                send_sms(sub["phone"], msg, sub["user_id"])
+        else:
+            finish_subscription_day(sub)
         return False
 
 def send_daily_questions(sub: dict):
@@ -254,17 +344,43 @@ def run_hour(hour: int = None):
             print(f"Hour {hour}: Processing {len(due)} subscriptions.")
         except:
             pass
+        
+        # Group by user to handle multi-subscription queue
+        user_due = {}
         for sub in due:
+            uid = sub["user_id"]
+            if uid not in user_due: user_due[uid] = []
+            user_due[uid].append(sub)
+            
+        from simulation_system import USER_STATES
+        
+        def _get_local_subs_menu(subs):
+            lines = []
+            for i, s in enumerate(subs, 1):
+                range_str = f"({float_to_daf_str(s['start_daf'])} - {float_to_daf_str(s['end_daf'])})"
+                lines.append(f"{i}. {s['tractate_name']} {range_str}")
+            return "\n".join(lines)
+
+        for uid, subs in user_due.items():
             try:
                 # Multi-subscription check: 
-                # On the scheduled hour, we only skip if there's a pending question FROM TODAY.
-                # This allows sending the first question of a new day even if yesterday wasn't answered.
-                if has_pending_question(sub["user_id"], same_day_only=True):
-                    print(f"User {sub['user_id']} already has a pending question from today. Skipping sub {sub['id']} for now.")
+                if has_pending_question(uid, same_day_only=True):
+                    print(f"User {uid} already has a pending question from today. Skipping for now.")
                     continue
-                send_daily_questions(sub)
+                
+                if len(subs) == 1:
+                    send_daily_questions(subs[0])
+                else:
+                    # Multi-sub queue
+                    phone = subs[0]["phone"]
+                    USER_STATES[phone] = {
+                        "state": "PROCESSING_QUESTION_QUEUE",
+                        "queue": [s["id"] for s in subs]
+                    }
+                    msg = get_template("queue_start_menu", menu=_get_local_subs_menu(subs))
+                    send_sms(phone, msg, uid)
             except Exception as e:
-                print(f"❌ Error sending to sub {sub['id']}: {e}")
+                print(f"❌ Error processing user {uid}: {e}")
 
 if __name__ == "__main__":
     run_hour()

@@ -489,12 +489,23 @@ def inforu_webhook():
     return "No data found in request", 400
 
 def process_incoming_sms(phone, message):
+    # Check if user reached daily limit before processing
+    conn = get_conn()
+    from datetime import date
+    today_str = date.today().isoformat()
+    count_query = "SELECT COUNT(*) FROM sms_log WHERE phone=? AND direction='out' AND sent_at LIKE ?"
+    daily_count = conn.execute(count_query, (phone, f"{today_str}%")).fetchone()[0]
+    
+    if daily_count >= 30:
+        print(f"Blocked incoming SMS from {phone}: Daily limit of 30 SMS reached.")
+        conn.close()
+        return
+
     try:
         receive_sms(phone, message)
     except Exception as e:
         print(f"Error in receive_sms (likely printing issue): {e}")
     
-    conn = get_conn()
     user = conn.execute("SELECT * FROM users WHERE phone=?", (phone,)).fetchone()
     conn.close()
     if not user:

@@ -81,6 +81,43 @@ def send_sms(phone: str, message: str, user_id: int = None):
     Send an SMS (Simulated or Real based on LIVE_MODE).
     """
     conn = get_conn()
+    
+    # Check daily limit (30 messages per user per day)
+    from datetime import datetime, timedelta
+    # Use last 24 hours to avoid timezone issues with CURRENT_TIMESTAMP in SQLite
+    last_24h = (datetime.utcnow() - timedelta(hours=24)).isoformat()
+    
+    count_query = "SELECT COUNT(*) FROM sms_log WHERE phone=? AND direction='out' AND sent_at >= ?"
+    daily_count = conn.execute(count_query, (phone, last_24h)).fetchone()[0]
+    
+    LIMIT = 30
+    if daily_count >= LIMIT:
+        # If this is exactly the 30th message, we allow one final warning message to go through
+        if daily_count == LIMIT:
+            warning_msg = "הגעת למגבלת ההודעות היומית (30). המערכת לא תוכל לשלוח או לקבל הודעות נוספות היום."
+            conn.execute(
+                "INSERT INTO sms_log (user_id, phone, direction, message) VALUES (?,?,?,?)",
+                (user_id, phone, "out", warning_msg),
+            )
+            conn.commit()
+            if LIVE_MODE:
+                send_real_sms(phone, warning_msg)
+            
+            # Print the warning message to console too
+            width = 70
+            print(f"\n{'='*width}")
+            print(f"טלפון יעד: {phone} | הודעה 30/30 להיום (אזהרה)".rjust(width))
+            print(f"{'-'*width}")
+            for line in warning_msg.split('\n'):
+                if line.strip(): print(line.rjust(width))
+            print(f"{'='*width}")
+                
+            print(f"\n[!] Daily limit reached for {phone}. Sent warning.")
+        
+        conn.close()
+        print(f"\n[X] Blocked SMS to {phone}: Daily limit of {LIMIT} exceeded. Message not sent: {message}")
+        return False
+
     conn.execute(
         "INSERT INTO sms_log (user_id, phone, direction, message) VALUES (?,?,?,?)",
         (user_id, phone, "out", message),
@@ -93,10 +130,17 @@ def send_sms(phone: str, message: str, user_id: int = None):
 
     # Console simulation
     width = 70
+    
+    # Calculate new daily count after insertion
+    conn = get_conn()
+    new_daily_count = conn.execute(count_query, (phone, last_24h)).fetchone()[0]
+    conn.close()
+    
     try:
         print(f"\n{'='*width}")
         # Using a prefix to make it clear it's the phone
-        print(f"טלפון יעד: {phone}".rjust(width))
+        header = f"טלפון יעד: {phone} | הודעה {new_daily_count}/{LIMIT} להיום"
+        print(header.rjust(width))
         print(f"{'-'*width}")
         for line in message.split('\n'):
             if not line.strip():
@@ -105,7 +149,7 @@ def send_sms(phone: str, message: str, user_id: int = None):
         print(f"{'='*width}")
     except UnicodeEncodeError:
         print(f"\n{'='*width}")
-        print(f"Target Phone: {phone}")
+        print(f"Target Phone: {phone} | Msg {new_daily_count}/{LIMIT} today")
         print(f"{'-'*width}")
         # Try to print safely by replacing unencodable characters
         safe_msg = message.encode(sys.stdout.encoding, errors='replace').decode(sys.stdout.encoding)
