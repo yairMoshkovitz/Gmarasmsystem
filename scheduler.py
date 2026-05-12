@@ -438,20 +438,42 @@ def run_hour(hour: int = None, force_date: date = None):
             except Exception as e:
                 print(f"❌ Error processing user {uid}: {e}")
 
-        # Use ThreadPoolExecutor for parallel processing
-        max_workers = min(50, len(user_due))  # Max 50 concurrent threads
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = {executor.submit(process_user_subs, uid, subs): uid for uid, subs in user_due.items()}
+        # Use ThreadPoolExecutor for parallel processing with batching
+        # Process in batches of 50 users with 1-second delays between batches
+        # This allows webhooks to be processed during the delays
+        batch_size = 50
+        max_workers = min(20, batch_size)  # Max 20 concurrent threads per batch
+        
+        user_items = list(user_due.items())
+        total_users = len(user_items)
+        processed_count = 0
+        
+        for batch_start in range(0, total_users, batch_size):
+            batch_end = min(batch_start + batch_size, total_users)
+            batch = user_items[batch_start:batch_end]
+            batch_num = (batch_start // batch_size) + 1
+            total_batches = (total_users + batch_size - 1) // batch_size
             
-            for future in as_completed(futures):
-                uid = futures[future]
-                try:
-                    future.result()
-                except Exception as e:
-                    print(f"❌ Thread error for user {uid}: {e}")
+            print(f"📦 Processing batch {batch_num}/{total_batches} ({len(batch)} users)...")
+            
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = {executor.submit(process_user_subs, uid, subs): uid for uid, subs in batch}
+                
+                for future in as_completed(futures):
+                    uid = futures[future]
+                    try:
+                        future.result()
+                        processed_count += 1
+                    except Exception as e:
+                        print(f"❌ Thread error for user {uid}: {e}")
+            
+            # Add delay between batches (except after the last batch)
+            if batch_end < total_users:
+                print(f"⏸️  Pausing 1 second before next batch... ({processed_count}/{total_users} processed)")
+                time.sleep(1)
         
         elapsed = time.time() - start_time
-        print(f"✅ Completed processing {len(user_due)} users in {elapsed:.2f} seconds")
+        print(f"✅ Completed processing {total_users} users in {elapsed:.2f} seconds")
 
 if __name__ == "__main__":
     run_hour()
