@@ -5,7 +5,6 @@ from registration import register_user, subscribe
 from scheduler import run_hour
 from sms_service import set_live_mode
 
-@pytest.mark.skip(reason="Load tests are too slow for normal CI, will be relevant after system upgrade")
 def test_load_1000_registrations():
     """Verify system handles 1000 users registration efficiently."""
     start_time = time.time()
@@ -34,7 +33,6 @@ def test_load_1000_registrations():
     # Performance benchmark: should take less than 10 seconds for 1000 (SQLite is fast)
     assert duration < 10
 
-@pytest.mark.skip(reason="Load tests are too slow for normal CI, will be relevant after system upgrade")
 def test_load_1000_scheduler_messages():
     """Verify scheduler can process 1000 messages for the same hour."""
     # 1. Setup 1000 users at hour 10

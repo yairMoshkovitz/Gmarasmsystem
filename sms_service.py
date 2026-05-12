@@ -26,6 +26,12 @@ def send_real_sms(phone: str, message: str):
     """
     Send a real SMS using Inforu API.
     """
+    # Safety check: Prevent sending to test/fake phone numbers
+    if phone.startswith("059") or phone.startswith("0580000"):
+        print(f"⚠️  BLOCKED: Attempted to send real SMS to test number {phone}")
+        print(f"   This appears to be a test/fake number. Real SMS sending prevented.")
+        return False
+    
     api_token = os.getenv("INFORU_TOKEN")
     api_user = os.getenv("INFORU_USER")
     sender_id = os.getenv("SENDER_ID", "HazarSms")
