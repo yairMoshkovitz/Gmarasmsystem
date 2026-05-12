@@ -207,21 +207,6 @@ def subscribe(
     conn.commit()
     conn.close()
 
-    # Fetch user info
-    conn2 = get_conn()
-    user = conn2.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
-    conn2.close()
-
-    confirm = get_template(
-        "registration_success",
-        tractate=tractate['name'],
-        start_daf=float_to_daf_str(start_daf),
-        end_daf=float_to_daf_str(end_daf),
-        rate=rate,
-        hour=hour
-    )
-    send_sms(user["phone"], confirm, user_id)
-
     try:
         print(f"Subscription #{sub_id}: User {user_id} -> {tractate['name']} daf {start_daf}-{end_daf}")
     except:

@@ -128,7 +128,7 @@ def handle_registered_user(phone, user, message):
 
         # 2. State: AWAITING_REG_STEP_2
         if state_info["state"] == "AWAITING_REG_STEP_2":
-            # New flexible parsing logic: Masechta [Range] [Rate] [Hour]
+            # New flexible parsing logic: Masechta [Range]
             match_obj, matched_text, is_in_db = find_tractate_by_name(message)
             
             if matched_text:
@@ -147,10 +147,8 @@ def handle_registered_user(phone, user, message):
                     end_f = 100.0
                     if 'total_dafim' in tractate_obj:
                          end_f = float(tractate_obj['total_dafim'])
-                    rate = 1.0
-                    hour = 18
 
-                    # Advanced Parsing
+                    # Advanced Parsing for Range only
                     if " עד " in norm_rem:
                         parts_range = norm_rem.split(" עד ")
                         start_str = parts_range[0].strip()
@@ -162,7 +160,6 @@ def handle_registered_user(phone, user, message):
                         if len(end_tokens) >= 2 and end_tokens[1] in ('ע"א', 'ע"ב'):
                             end_str = f"{end_tokens[0]} {end_tokens[1]}"
                             end_f = daf_to_float(end_str)
-                            remaining_params = end_tokens[2:]
                         else:
                             end_str = end_tokens[0]
                             # if end is just daf, include amud b
@@ -170,14 +167,6 @@ def handle_registered_user(phone, user, message):
                                  end_f = daf_to_float(end_str) + 0.5
                             else:
                                  end_f = daf_to_float(end_str)
-                            remaining_params = end_tokens[1:]
-                            
-                        if len(remaining_params) >= 1:
-                            try: rate = float(remaining_params[0])
-                            except: pass
-                        if len(remaining_params) >= 2:
-                            try: hour = int(remaining_params[1])
-                            except: pass
                     else:
                         params = norm_rem.split()
                         if params:
@@ -203,44 +192,61 @@ def handle_registered_user(phone, user, message):
                                              end_f = daf_to_float(end_str) + 0.5
                                         else:
                                              end_f = daf_to_float(end_str)
-                            
-                            if idx < len(params):
-                                try: rate = float(params[idx]); idx += 1
-                                except: pass
-                            if idx < len(params):
-                                try: hour = int(params[idx]); idx += 1
-                                except: pass
                     
-                    from database import load_questions
-                    questions = load_questions(tractate_obj['id'])
-                    found_q = False
-                    for q in questions:
-                        from questions_engine import get_daf_range_for_question
-                        q_start, q_end = get_daf_range_for_question(q)
-                        if q_start >= start_f and q_start <= end_f:
-                            found_q = True
-                            break
-                    
-                    if not found_q:
-                        send_sms(phone, get_template("no_questions_in_range", 
-                                                     tractate=tractate_obj['name'], 
-                                                     start=float_to_daf_str(start_f), 
-                                                     end=float_to_daf_str(end_f)))
-
-                    subscribe(user["id"], tractate_obj["id"], start_f, end_f, rate, hour)
-                    if phone in USER_STATES:
-                        del USER_STATES[phone]
+                    USER_STATES[phone] = {
+                        "state": "AWAITING_REG_STEP_3",
+                        "tractate_id": tractate_obj["id"],
+                        "tractate_name": tractate_obj["name"],
+                        "start_daf": start_f,
+                        "end_daf": end_f
+                    }
+                    send_sms(phone, get_template("registration_step_3_instructions"))
                     return
                 except Exception as e:
                     print(f"DEBUG Step 2 Error: {e}")
-                    error_msg = str(e)
-                    if "ניתן להירשם לעד 5 מסכתות" in error_msg:
-                        send_sms(phone, error_msg)
-                    else:
-                        send_sms(phone, "שגיאה בפרטי המסכת. אנא שלח בפורמט: מסכת, דף התחלה עד דף סיום, קצב, שעה\nלדוגמה: ברכות ב עד י 1 18")
+                    send_sms(phone, "שגיאה בפרטי המסכת. אנא שלח בפורמט: מסכת דף ועמוד התחלה עד דף ועמוד סיום\nלדוגמה: ברכות ב ע\"א עד י ע\"ב")
                     return
             else:
                 send_sms(phone, get_template("tractate_not_found", tractate=message.split()[0] if message.split() else message))
+                return
+
+        # 3. State: AWAITING_REG_STEP_3
+        if state_info["state"] == "AWAITING_REG_STEP_3":
+            try:
+                # Expected format: Rate, Hour or Rate Hour
+                clean_msg = message.replace(',', ' ').strip()
+                parts = clean_msg.split()
+                if len(parts) < 2:
+                     send_sms(phone, "אנא שלח הספק ושעה מופרדים בפסיק או רווח.\nלדוגמא: 1.5, 18")
+                     return
+                
+                rate = float(parts[0])
+                hour = int(parts[1])
+                
+                if not (0 <= hour <= 23):
+                    if hour == 24: hour = 0
+                    else:
+                        send_sms(phone, "שעה לא תקינה. אנא בחר מספר בין 01 ל-24.")
+                        return
+
+                tractate_id = state_info["tractate_id"]
+                tractate_name = state_info["tractate_name"]
+                start_f = state_info["start_daf"]
+                end_f = state_info["end_daf"]
+
+                from registration import subscribe as original_subscribe
+                original_subscribe(user["id"], tractate_id, start_f, end_f, rate, hour)
+                
+                summary = f"מסכת {tractate_name} מדף {float_to_daf_str(start_f)} עד {float_to_daf_str(end_f)} בקצב של {rate} דפים ליום, בשעה {hour:02d}:00"
+                
+                # Clear state
+                del USER_STATES[phone]
+                
+                send_sms(phone, get_template("registration_final_success", name=user["name"], summary=summary))
+                return
+            except Exception as e:
+                print(f"DEBUG Step 3 Error: {e}")
+                send_sms(phone, "שגיאה בפרטי ההספק או השעה. אנא ודא שהכנסת מספרים תקינים.\nלדוגמא: 1, 18")
                 return
 
         if state_info["state"] == "PROCESSING_QUESTION_QUEUE":
