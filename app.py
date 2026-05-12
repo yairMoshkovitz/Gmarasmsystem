@@ -632,7 +632,8 @@ def process_incoming_sms(phone, message):
     conn = get_conn()
     from datetime import date
     today_str = date.today().isoformat()
-    count_query = "SELECT COUNT(*) FROM sms_log WHERE phone=? AND direction='out' AND sent_at LIKE ?"
+    # PostgreSQL fix: cast sent_at to text for LIKE or use DATE comparison
+    count_query = "SELECT COUNT(*) FROM sms_log WHERE phone=? AND direction='out' AND sent_at::text LIKE ?"
     daily_count = conn.execute(count_query, (phone, f"{today_str}%")).fetchone()[0]
     
     if daily_count >= 30:

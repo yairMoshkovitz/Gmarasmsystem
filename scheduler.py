@@ -172,7 +172,7 @@ def send_next_question_or_finish(sub: dict, override_queue: list = None):
         # Fallback for Postgres or if previous query failed
         today_str = str(date.today())
         count_row = conn.execute(
-            "SELECT COUNT(*) FROM sent_questions WHERE subscription_id=? AND sent_at LIKE ?",
+            "SELECT COUNT(*) FROM sent_questions WHERE subscription_id=? AND sent_at::text LIKE ?",
             (sub["id"], f"{today_str}%")
         ).fetchone()
 
