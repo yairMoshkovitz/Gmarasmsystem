@@ -57,13 +57,15 @@ def get_already_sent_ids(user_id: int, subscription_id: int) -> list[str]:
     return [str(row["question_id"]) for row in rows]
 
 
-def format_question_sms(q: dict, index: int, tractate_name: str) -> str:
+def format_question_sms(q: dict, index: int, tractate_name: str, is_last: bool = False) -> str:
     """Format a question into an SMS message using template."""
     q_start, _ = get_daf_range_for_question(q)
     daf_str = float_to_daf_str(q_start)
     
+    template_name = "question_format_last" if is_last else "question_format"
+    
     return get_template(
-        "question_format",
+        template_name,
         tractate=tractate_name,
         daf=daf_str,
         question=q.get("text") or q.get("question") or ""

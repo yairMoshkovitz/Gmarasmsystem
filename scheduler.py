@@ -136,8 +136,10 @@ def finish_subscription_day(sub: dict, override_queue: list = None):
     
     # Get all active subscriptions for this user to build a combined status message
     conn = get_conn()
+    # We only show the status for the specific subscription that just finished, 
+    # unless it was a session with multiple subs (handled by queue check above)
     all_user_subs = conn.execute(
-        "SELECT s.*, t.name as tractate_name FROM subscriptions s JOIN tractates t ON s.tractate_id = t.id WHERE s.user_id=? AND s.is_active=1", (sub["user_id"],)
+        "SELECT s.*, t.name as tractate_name FROM subscriptions s JOIN tractates t ON s.tractate_id = t.id WHERE s.id=? AND s.is_active=1", (sub["id"],)
     ).fetchall()
     conn.close()
     
@@ -170,11 +172,22 @@ def send_next_question_or_finish(sub: dict, override_queue: list = None):
     # For compatibility, we can check by simple str starts with
     if count_row is None or count_row[0] == 0:
         # Fallback for Postgres or if previous query failed
+        # SQLite doesn't support ::text, so we try a safer approach
         today_str = str(date.today())
-        count_row = conn.execute(
-            "SELECT COUNT(*) FROM sent_questions WHERE subscription_id=? AND sent_at::text LIKE ?",
-            (sub["id"], f"{today_str}%")
-        ).fetchone()
+        try:
+            count_row = conn.execute(
+                "SELECT COUNT(*) FROM sent_questions WHERE subscription_id=? AND sent_at LIKE ?",
+                (sub["id"], f"{today_str}%")
+            ).fetchone()
+        except:
+             # If that also fails (e.g. on Postgres), try the ::text cast
+             try:
+                 count_row = conn.execute(
+                    "SELECT COUNT(*) FROM sent_questions WHERE subscription_id=? AND sent_at::text LIKE ?",
+                    (sub["id"], f"{today_str}%")
+                 ).fetchone()
+             except:
+                 pass
 
     conn.close()
     
@@ -207,9 +220,14 @@ def send_next_question_or_finish(sub: dict, override_queue: list = None):
         # Verify insertion for debug
         c2 = conn.execute("SELECT COUNT(*) FROM sent_questions WHERE subscription_id=?", (sub["id"],)).fetchone()
         print(f"DEBUG: sent_questions count for sub {sub['id']} is now {c2[0]}")
+        
+        # We check if this is the last question for today
+        # count_row[0] is questions sent BEFORE this one. 
+        # c2[0] is questions sent INCLUDING this one.
+        is_last = (c2[0] >= daily_limit)
         conn.close()
         
-        msg = format_question_sms(q, 1, sub["tractate_name"])
+        msg = format_question_sms(q, 1, sub["tractate_name"], is_last=is_last)
         send_sms(sub["phone"], msg, sub["user_id"])
         
         # Set AWAITING_ANSWER state
