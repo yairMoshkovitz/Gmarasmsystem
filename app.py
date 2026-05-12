@@ -13,9 +13,43 @@ from scheduler import run_hour
 
 app = Flask(__name__)
 
+def basic_auth_required(f):
+    from functools import wraps
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        # Skip auth for webhooks or other external APIs if necessary
+        path = request.path.lower()
+        if path.startswith('/webhook/') or path == '/webhook':
+            return f(*args, **kwargs)
+
+        auth = request.headers.get('Authorization')
+        if not auth or not auth.startswith('Basic '):
+            return Response(
+                'Login required', 401,
+                {'WWW-Authenticate': 'Basic realm="Protected Area"'}
+            )
+
+        try:
+            encoded_creds = auth.split(' ')[1]
+            decoded_creds = base64.b64decode(encoded_creds).decode('utf-8')
+            user, password = decoded_creds.split(':', 1)
+        except Exception:
+            return Response(
+                'Invalid credentials', 401,
+                {'WWW-Authenticate': 'Basic realm="Protected Area"'}
+            )
+
+        if user != 'admin' or password != os.environ.get('SITE_PASSWORD'):
+            return Response(
+                'Wrong password', 403
+            )
+        return f(*args, **kwargs)
+    return decorated
+
 @app.before_request
-def basic_auth():
-    # Skip auth for webhooks or other external APIs if necessary
+def basic_auth_legacy():
+    # Keep the legacy before_request for overall protection
+    # but some routes might use the decorator if they need more control
     path = request.path.lower()
     if path.startswith('/webhook/') or path == '/webhook':
         return
@@ -256,6 +290,111 @@ def edit_templates():
         'Pragma': 'no-cache',
         'Expires': '0'
     }
+
+@app.route('/support')
+@basic_auth_required
+def support_page():
+    return render_template('support.html')
+
+@app.route('/api/support/assignees', methods=['GET', 'POST', 'DELETE'])
+@basic_auth_required
+def manage_assignees():
+    conn = get_conn()
+    if request.method == 'POST':
+        data = request.json
+        name = data.get('name')
+        if name:
+            conn.execute("INSERT OR IGNORE INTO assignees (name) VALUES (?)", (name,))
+            conn.commit()
+        conn.close()
+        return jsonify({"status": "success"})
+    
+    elif request.method == 'DELETE':
+        name = request.args.get('name')
+        if name:
+            conn.execute("UPDATE assignees SET is_active = 0 WHERE name = ?", (name,))
+            conn.commit()
+        conn.close()
+        return jsonify({"status": "success"})
+        
+    rows = conn.execute("SELECT name FROM assignees WHERE is_active = 1").fetchall()
+    conn.close()
+    return jsonify([r['name'] for r in rows])
+
+@app.route('/api/support/requests')
+@basic_auth_required
+def get_support_requests():
+    category = request.args.get('category')
+    status = request.args.get('status')
+    assigned_to = request.args.get('assigned_to')
+    
+    query = """
+        SELECT r.*, u.name || ' ' || COALESCE(u.last_name, '') as user_full_name, u.phone 
+        FROM support_requests r
+        JOIN users u ON r.user_id = u.id
+        WHERE 1=1
+    """
+    params = []
+    if category:
+        query += " AND r.category = ?"
+        params.append(category)
+    if status:
+        query += " AND r.status = ?"
+        params.append(status)
+    if assigned_to:
+        query += " AND r.assigned_to = ?"
+        params.append(assigned_to)
+        
+    query += " ORDER BY r.created_at DESC"
+    
+    conn = get_conn()
+    rows = conn.execute(query, params).fetchall()
+    conn.close()
+    
+    return jsonify([dict(r) for r in rows])
+
+@app.route('/api/support/update', methods=['POST'])
+@basic_auth_required
+def update_support_request():
+    data = request.json
+    req_id = data.get('id')
+    status = data.get('status')
+    assigned_to = data.get('assigned_to')
+    response_text = data.get('response_text')
+    
+    if not req_id:
+        return jsonify({"error": "Missing ID"}), 400
+        
+    conn = get_conn()
+    
+    if status:
+        conn.execute("UPDATE support_requests SET status = ? WHERE id = ?", (status, req_id))
+    if assigned_to is not None: # Can be empty string to unassign
+        conn.execute("UPDATE support_requests SET assigned_to = ? WHERE id = ?", (assigned_to, req_id))
+        
+    if response_text:
+        # Get user phone for the request
+        req = conn.execute("""
+            SELECT r.*, u.phone 
+            FROM support_requests r 
+            JOIN users u ON r.user_id = u.id 
+            WHERE r.id = ?
+        """, (req_id,)).fetchone()
+        
+        if req:
+            from sms_service import send_sms
+            send_sms(req['phone'], response_text)
+            conn.execute("""
+                UPDATE support_requests 
+                SET last_response_at = CURRENT_TIMESTAMP, 
+                    status = 'completed',
+                    resolved_at = CASE WHEN status != 'completed' THEN CURRENT_TIMESTAMP ELSE resolved_at END
+                WHERE id = ?
+            """, (req_id,))
+            
+    conn.commit()
+    conn.close()
+    return jsonify({"status": "success"})
 
 @app.route('/api/templates', methods=['GET', 'POST'])
 def manage_templates():

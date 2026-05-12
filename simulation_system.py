@@ -102,14 +102,23 @@ def handle_registered_user(phone, user, message):
                     conn.close()
                     
                     if sub_row:
-                        del USER_STATES[phone] # Clear answer state
+                        # Keep the queue if it exists! We only change the state temporarily
+                        old_queue = state_info.get("queue")
+                        if old_queue:
+                            USER_STATES[phone] = {"state": "PROCESSING_QUESTION_QUEUE", "queue": old_queue}
+                        else:
+                            del USER_STATES[phone] # Clear answer state
+                            
                         from scheduler import send_next_question_or_finish
                         send_next_question_or_finish(dict(sub_row))
                         return
                 
                 # Fallback if DB didn't have the question for some reason
                 conn.close()
-                del USER_STATES[phone]
+                if "queue" in state_info:
+                    USER_STATES[phone] = {"state": "PROCESSING_QUESTION_QUEUE", "queue": state_info["queue"]}
+                else:
+                    del USER_STATES[phone]
                 send_sms(phone, "לא מצאתי שאלה פתוחה לשייך אליה את התשובה. חזרנו לתפריט הראשי.")
                 return
             else:
@@ -316,6 +325,33 @@ def handle_registered_user(phone, user, message):
                 del USER_STATES[phone]
             return
 
+        if state_info["state"] == "AWAITING_SUPPORT_CATEGORY":
+            if message not in ["1", "2", "3"]:
+                send_sms(phone, "בחירה לא תקינה. אנא בחר 1, 2 או 3.")
+                return
+            
+            categories = {"1": "באג/תקלה", "2": "הצעת שיפור/שדרוג", "3": "שאלה כללית"}
+            USER_STATES[phone] = {
+                "state": "AWAITING_SUPPORT_MESSAGE",
+                "category": categories[message]
+            }
+            send_sms(phone, get_template("ask_support_message"))
+            return
+
+        if state_info["state"] == "AWAITING_SUPPORT_MESSAGE":
+            category = state_info.get("category")
+            conn = get_conn()
+            conn.execute(
+                "INSERT INTO support_requests (user_id, category, message) VALUES (?, ?, ?)",
+                (user["id"], category, message)
+            )
+            conn.commit()
+            conn.close()
+            
+            send_sms(phone, get_template("support_request_confirmed", category=category))
+            del USER_STATES[phone]
+            return
+
         if state_info["state"] in ("AWAITING_UPDATE_DAF", "AWAITING_PAUSE_DAYS", "AWAITING_NEW_HOUR"):
             sub_id = state_info.get("sub_id")
             conn = get_conn()
@@ -465,6 +501,9 @@ def handle_registered_user(phone, user, message):
             conn.commit()
             conn.close()
             send_sms(phone, get_template("unsubscribe_success"))
+    elif message == '8':
+        USER_STATES[phone] = {"state": "AWAITING_SUPPORT_CATEGORY"}
+        send_sms(phone, get_template("support_category_menu"))
     else:
         send_sms(phone, get_template(template_name="main_menu", name=user["name"]))
 

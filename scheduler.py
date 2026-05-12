@@ -23,10 +23,10 @@ def has_sent_today(user_id: int, sub_id: int) -> bool:
     conn.close()
     return row is not None
 
-def get_due_subscriptions(current_hour: int) -> list:
+def get_due_subscriptions(current_hour: int, today_str: str = None) -> list:
     """Find active subscriptions that should get questions now."""
     conn = get_conn()
-    today = date.today().isoformat()
+    today = today_str or date.today().isoformat()
     
     rows = conn.execute(
         """
@@ -72,9 +72,9 @@ def format_sub_status(sub: dict) -> str:
                         next_study=study_range,
                         hour=sub["send_hour"])
 
-def finish_subscription_day(sub: dict):
+def finish_subscription_day(sub: dict, override_queue: list = None):
     """Send finishing messages and advance daf."""
-    from simulation_system import USER_STATES
+    import simulation_system
     
     def _get_local_subs_menu(subs):
         lines = []
@@ -86,75 +86,103 @@ def finish_subscription_day(sub: dict):
     # 1. Advance to next day FIRST so we can show tomorrow's study correctly
     advance_subscription(sub["id"], sub["dafim_per_day"])
     
+    print(f"DEBUG: Finishing day for sub {sub['id']} ({sub['tractate_name']})")
+    
     # Check if there are other subscriptions in the queue for this session
-    state_info = USER_STATES.get(sub["phone"])
-    if state_info and state_info["state"] == "PROCESSING_QUESTION_QUEUE":
-        queue = state_info.get("queue", [])
-        if queue:
-            # Still more tractates in queue
-            if len(queue) >= 2:
-                # Refresh subs data from DB to get latest tractate names/ranges
-                conn = get_conn()
-                due_subs = []
-                for s_id in queue:
-                    r = conn.execute(
-                        "SELECT s.*, t.name as tractate_name FROM subscriptions s JOIN tractates t ON s.tractate_id = t.id WHERE s.id=?", (s_id,)
-                    ).fetchone()
-                    if r: due_subs.append(dict(r))
-                conn.close()
-                
-                msg = get_template("queue_next_menu", menu=_get_local_subs_menu(due_subs))
-                send_sms(sub["phone"], msg, sub["user_id"])
-                # State remains PROCESSING_QUESTION_QUEUE
-            else:
-                # Only 1 left, send it directly
-                last_sub_id = queue.pop(0)
-                conn = get_conn()
-                last_sub = conn.execute(
-                    "SELECT s.*, t.name as tractate_name, u.phone, u.name as user_name FROM subscriptions s JOIN tractates t ON s.tractate_id = t.id JOIN users u ON s.user_id = u.id WHERE s.id=?", (last_sub_id,)
+    # We prefer the override_queue parameter passed directly to avoid circular import issues
+    queue = override_queue
+    if queue is None:
+        state_info = simulation_system.USER_STATES.get(sub["phone"])
+        if state_info and state_info.get("state") in ["PROCESSING_QUESTION_QUEUE", "AWAITING_ANSWER"]:
+            queue = state_info.get("queue", [])
+    
+    if queue:
+        # Still more tractates in queue
+        print(f"DEBUG: Found queue with {len(queue)} items left")
+        if len(queue) >= 2:
+            # Refresh subs data from DB to get latest tractate names/ranges
+            conn = get_conn()
+            due_subs = []
+            for s_id in queue:
+                r = conn.execute(
+                    "SELECT s.*, t.name as tractate_name FROM subscriptions s JOIN tractates t ON s.tractate_id = t.id WHERE s.id=?", (s_id,)
                 ).fetchone()
-                conn.close()
-                
-                if last_sub:
-                    last_sub = dict(last_sub)
-                    range_str = f"{last_sub['tractate_name']} ({float_to_daf_str(last_sub['start_daf'])} - {float_to_daf_str(last_sub['end_daf'])})"
-                    msg = get_template("queue_last_one", finished_tractate=sub["tractate_name"], next_tractate=range_str)
-                    send_sms(sub["phone"], msg, sub["user_id"])
-                    send_next_question_or_finish(last_sub)
-            return
+                if r: due_subs.append(dict(r))
+            conn.close()
+            
+            msg = get_template("queue_next_menu", menu=_get_local_subs_menu(due_subs))
+            send_sms(sub["phone"], msg, sub["user_id"])
+            # State remains PROCESSING_QUESTION_QUEUE
+        else:
+            # Only 1 left, send it directly
+            last_sub_id = queue.pop(0)
+            conn = get_conn()
+            last_sub = conn.execute(
+                "SELECT s.*, t.name as tractate_name, u.phone, u.name as user_name FROM subscriptions s JOIN tractates t ON s.tractate_id = t.id JOIN users u ON s.user_id = u.id WHERE s.id=?", (last_sub_id,)
+            ).fetchone()
+            conn.close()
+            
+            if last_sub:
+                last_sub = dict(last_sub)
+                range_str = f"{last_sub['tractate_name']} ({float_to_daf_str(last_sub['start_daf'])} - {float_to_daf_str(last_sub['end_daf'])})"
+                msg = get_template("queue_last_one", finished_tractate=sub["tractate_name"], next_tractate=range_str)
+                send_sms(sub["phone"], msg, sub["user_id"])
+                # Recursively pass the empty queue
+                send_next_question_or_finish(last_sub, override_queue=queue)
+        return
 
     # No queue or queue finished - Send "Study Closure" message
-    # Refresh sub data to get updated current_daf (which was advanced)
+    print(f"DEBUG: No queue found or queue finished. Sending study closure.")
+    
+    # Get all active subscriptions for this user to build a combined status message
     conn = get_conn()
-    updated_sub = conn.execute(
-        "SELECT s.*, t.name as tractate_name FROM subscriptions s JOIN tractates t ON s.tractate_id = t.id WHERE s.id=?", (sub["id"],)
-    ).fetchone()
+    all_user_subs = conn.execute(
+        "SELECT s.*, t.name as tractate_name FROM subscriptions s JOIN tractates t ON s.tractate_id = t.id WHERE s.user_id=? AND s.is_active=1", (sub["user_id"],)
+    ).fetchall()
     conn.close()
     
-    if updated_sub:
-        status_line = format_sub_status(dict(updated_sub))
-        closure_msg = get_template("study_closure", sub_info=status_line)
+    if all_user_subs:
+        status_lines = [format_sub_status(dict(s)) for s in all_user_subs]
+        combined_status = "\n".join(status_lines)
+        closure_msg = get_template("study_closure", sub_info=combined_status)
         send_sms(sub["phone"], closure_msg, sub["user_id"])
 
-def send_next_question_or_finish(sub: dict):
+    # Clear state completely since day is finished
+    if sub["phone"] in simulation_system.USER_STATES:
+        del simulation_system.USER_STATES[sub["phone"]]
+
+def send_next_question_or_finish(sub: dict, override_queue: list = None):
     """
     Check for the next question to send in the current range.
     If no more questions (or reached daily limit), send the 'tomorrow study' message.
     """
-    from simulation_system import USER_STATES
+    import simulation_system
     # 1. Check daily limit (e.g., 2 questions per day)
     conn = get_conn()
-    today_start = date.today().isoformat() + " 00:00:00"
+    
+    # Use SQLite date function to ensure we count only today's questions
     count_row = conn.execute(
-        "SELECT COUNT(*) FROM sent_questions WHERE subscription_id=? AND sent_at >= ?",
-        (sub["id"], today_start)
+        "SELECT COUNT(*) FROM sent_questions WHERE subscription_id=? AND date(sent_at) = date('now')",
+        (sub["id"],)
     ).fetchone()
+    
+    # Check if we are running in Postgres where 'now' might be slightly different syntax
+    # For compatibility, we can check by simple str starts with
+    if count_row is None or count_row[0] == 0:
+        # Fallback for Postgres or if previous query failed
+        today_str = str(date.today())
+        count_row = conn.execute(
+            "SELECT COUNT(*) FROM sent_questions WHERE subscription_id=? AND sent_at LIKE ?",
+            (sub["id"], f"{today_str}%")
+        ).fetchone()
+
     conn.close()
     
     daily_limit = 2 # This could be configurable in the future
-    if count_row[0] >= daily_limit:
-        print(f"Sub {sub['id']} reached daily limit of {daily_limit} questions.")
-        finish_subscription_day(sub)
+    
+    if count_row and count_row[0] >= daily_limit:
+        print(f"Sub {sub['id']} reached daily limit of {daily_limit} questions (found {count_row[0]}).")
+        finish_subscription_day(sub, override_queue=override_queue)
         return False
 
     questions = load_questions(sub["tractate_id"])
@@ -175,13 +203,27 @@ def send_next_question_or_finish(sub: dict):
             (sub["user_id"], sub["id"], str(q.get("id")), q.get("text") or q.get("question") or ""),
         )
         conn.commit()
+        
+        # Verify insertion for debug
+        c2 = conn.execute("SELECT COUNT(*) FROM sent_questions WHERE subscription_id=?", (sub["id"],)).fetchone()
+        print(f"DEBUG: sent_questions count for sub {sub['id']} is now {c2[0]}")
         conn.close()
         
         msg = format_question_sms(q, 1, sub["tractate_name"])
         send_sms(sub["phone"], msg, sub["user_id"])
         
         # Set AWAITING_ANSWER state
-        USER_STATES[sub['phone']] = {"state": "AWAITING_ANSWER"}
+        new_state = {"state": "AWAITING_ANSWER"}
+        
+        # Try to use override queue, or fetch from existing state
+        if override_queue is not None:
+            new_state["queue"] = override_queue
+        else:
+            old_state = simulation_system.USER_STATES.get(sub['phone'], {})
+            if "queue" in old_state:
+                new_state["queue"] = old_state["queue"]
+                
+        simulation_system.USER_STATES[sub['phone']] = new_state
         
         return True
     else:
@@ -210,7 +252,7 @@ def send_next_question_or_finish(sub: dict):
                 msg = get_template("no_questions_today", next_study=study_range, hour=updated_sub["send_hour"])
                 send_sms(sub["phone"], msg, sub["user_id"])
         else:
-            finish_subscription_day(sub)
+            finish_subscription_day(sub, override_queue=override_queue)
         return False
 
 def send_daily_questions(sub: dict):
@@ -251,9 +293,10 @@ def has_pending_question(user_id: int, same_day_only: bool = False) -> bool:
     conn.close()
     return row is not None
 
-def run_hour(hour: int = None):
+def run_hour(hour: int = None, force_date: date = None):
     """Main entry point for scheduled task."""
     israel_now = get_israel_time()
+    today = force_date or date.today()
     if hour is None:
         hour = israel_now.hour
     
@@ -282,7 +325,7 @@ def run_hour(hour: int = None):
     # Special case: Friday 16:00 - send all Friday 16:00+ messages
     if day_of_week == 4 and hour == 16:
         conn = get_conn()
-        today = date.today().isoformat()
+        today_str = today.isoformat()
         rows = conn.execute(
             """
             SELECT s.*, t.name as tractate_name, u.phone, u.name as user_name
@@ -301,7 +344,7 @@ def run_hour(hour: int = None):
     # Special case: Saturday 21:00 - send all Shabbat messages
     elif day_of_week == 5 and hour == 21:
         conn = get_conn()
-        today = date.today().isoformat()
+        today_str = today.isoformat()
         # Find all subscriptions that were supposed to run during Shabbat
         # (Friday > 16:00 OR Saturday < 21:00)
         # Since we run daily, we just need to find all active subs that haven't sent today
@@ -337,7 +380,7 @@ def run_hour(hour: int = None):
 
     else:
         # Normal hour processing
-        due = get_due_subscriptions(hour)
+        due = get_due_subscriptions(hour, today.isoformat())
 
     if due:
         try:

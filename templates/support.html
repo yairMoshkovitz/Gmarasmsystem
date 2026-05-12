@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>מערכת גמרא SMS - ניהול פניות</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <style>
+        body { background-color: #f0f2f5; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        .navbar { background-color: #075e54; color: white; }
+        .card { border-radius: 15px; border: none; box-shadow: 0 4px 12px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        .status-new { background-color: #ffebee; color: #c62828; }
+        .status-in-progress { background-color: #fff3e0; color: #ef6c00; }
+        .status-completed { background-color: #e8f5e9; color: #2e7d32; }
+        .badge-category { font-size: 0.85rem; padding: 5px 10px; border-radius: 20px; }
+        .category-bug { background-color: #f44336; color: white; }
+        .category-feature { background-color: #2196f3; color: white; }
+        .category-other { background-color: #9e9e9e; color: white; }
+    </style>
+</head>
+<body>
+
+<nav class="navbar navbar-expand-lg">
+    <div class="container">
+        <a class="navbar-brand text-white" href="/">גמרא SMS - ניהול פניות</a>
+        <div class="navbar-nav ms-auto">
+            <a class="nav-link text-white" href="/">חזרה ללוח בקרה</a>
+        </div>
+    </div>
+</nav>
+
+<div class="container mt-4">
+    <div class="row mb-4 g-3">
+        <div class="col-md-12">
+            <div class="card p-3 bg-light border">
+                <h5 class="mb-3">ניהול מטפלים</h5>
+                <div class="input-group">
+                    <input type="text" id="newAssigneeName" class="form-control" placeholder="שם מטפל חדש (למשל: דוד)">
+                    <button class="btn btn-success" onclick="addAssignee()">הוסף מטפל</button>
+                </div>
+                <div id="assigneesList" class="mt-2 d-flex flex-wrap gap-2">
+                    <!-- Assignees will be listed here with delete button -->
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-3">
+            <label class="form-label">סינון לפי סטטוס</label>
+            <select id="statusFilter" class="form-select">
+                <option value="">הכל</option>
+                <option value="new">חדש</option>
+                <option value="in_progress">בטיפול</option>
+                <option value="completed">הושלם</option>
+            </select>
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">סינון לפי קטגוריה</label>
+            <select id="categoryFilter" class="form-select">
+                <option value="">הכל</option>
+                <option value="באג/תקלה">באג/תקלה</option>
+                <option value="הצעת שיפור/שדרוג">הצעת שיפור/שדרוג</option>
+                <option value="שאלה כללית">שאלה כללית</option>
+            </select>
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">סינון לפי מטפל</label>
+            <select id="assigneeFilter" class="form-select">
+                <option value="">כולם</option>
+                <!-- Dynamic options -->
+            </select>
+        </div>
+        <div class="col-md-3 d-flex align-items-end">
+            <button class="btn btn-primary w-100" onclick="loadRequests()">רענן פניות</button>
+        </div>
+    </div>
+
+    <div id="requestsContainer">
+        <!-- Requests will be loaded here -->
+        <div class="text-center p-5">
+            <div class="spinner-border text-primary" role="status"></div>
+            <p class="mt-2">טוען פניות...</p>
+        </div>
+    </div>
+</div>
+
+<!-- Response Modal -->
+<div class="modal fade" id="responseModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">מענה לפנייה</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="modalRequestId">
+                <div class="mb-3">
+                    <label class="form-label">תוכן ההודעה (SMS)</label>
+                    <textarea id="modalResponseText" class="form-control" rows="4" placeholder="כתוב כאן את התשובה למשתמש..."></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">ביטול</button>
+                <button type="button" class="btn btn-success" onclick="sendResponse()">שלח SMS וסגור פנייה</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+    function getCategoryClass(cat) {
+        if (cat.includes('באג')) return 'category-bug';
+        if (cat.includes('שיפור')) return 'category-feature';
+        return 'category-other';
+    }
+
+    function getStatusLabel(status) {
+        const labels = {
+            'new': 'חדש',
+            'in_progress': 'בטיפול',
+            'completed': 'הושלם'
+        };
+        return labels[status] || status;
+    }
+
+    let currentAssignees = [];
+
+    async function loadAssignees() {
+        try {
+            const response = await fetch('/api/support/assignees');
+            currentAssignees = await response.json();
+            
+            // Update Filter dropdown
+            const filterVal = $('#assigneeFilter').val();
+            let filterHtml = '<option value="">כולם</option>';
+            currentAssignees.forEach(name => {
+                filterHtml += `<option value="${name}" ${filterVal === name ? 'selected' : ''}>${name}</option>`;
+            });
+            $('#assigneeFilter').html(filterHtml);
+
+            // Update management list
+            let listHtml = '';
+            currentAssignees.forEach(name => {
+                listHtml += `
+                    <span class="badge bg-white border text-dark p-2 d-flex align-items-center gap-2">
+                        ${name}
+                        <button class="btn-close" style="font-size: 0.6rem;" onclick="removeAssignee('${name}')"></button>
+                    </span>
+                `;
+            });
+            $('#assigneesList').html(listHtml);
+            
+            // Reload requests to update dropdowns in cards
+            loadRequests();
+        } catch (err) {
+            console.error('Error loading assignees:', err);
+        }
+    }
+
+    async function addAssignee() {
+        const nameInput = document.getElementById('newAssigneeName');
+        const name = nameInput.value.trim();
+        if (!name) return;
+        try {
+            await fetch('/api/support/assignees', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: name })
+            });
+            $('#newAssigneeName').val('');
+            loadAssignees();
+        } catch (err) { alert('שגיאה בהוספת מטפל'); }
+    }
+
+    async function removeAssignee(name) {
+        if (!confirm(`האם להסיר את המטפל ${name}?`)) return;
+        try {
+            await fetch(`/api/support/assignees?name=${encodeURIComponent(name)}`, { method: 'DELETE' });
+            loadAssignees();
+        } catch (err) { alert('שגיאה בהסרת מטפל'); }
+    }
+
+    async function loadRequests() {
+        const status = $('#statusFilter').val();
+        const category = $('#categoryFilter').val();
+        const assigned_to = $('#assigneeFilter').val();
+        
+        const url = `/api/support/requests?status=${status}&category=${encodeURIComponent(category)}&assigned_to=${encodeURIComponent(assigned_to)}`;
+        
+        try {
+            const response = await fetch(url);
+            const data = await response.json();
+            
+            let html = '';
+            if (data.length === 0) {
+                html = '<div class="alert alert-info text-center">לא נמצאו פניות העונות על הקריטריונים.</div>';
+            } else {
+                data.forEach(req => {
+                    const date = new Date(req.created_at).toLocaleString('he-IL');
+                    
+                    let assigneesOptions = '<option value="" ' + (!req.assigned_to ? 'selected' : '') + '>-- ללא מטפל --</option>';
+                    currentAssignees.forEach(name => {
+                        assigneesOptions += `<option value="${name}" ${req.assigned_to === name ? 'selected' : ''}>מטפל: ${name}</option>`;
+                    });
+
+                    html += `
+                        <div class="card p-3 status-${req.status.replace('_', '-')}">
+                            <div class="d-flex justify-content-between align-items-start mb-2">
+                                <div>
+                                    <span class="badge badge-category ${getCategoryClass(req.category)}">${req.category}</span>
+                                    <span class="ms-2 fw-bold">${req.user_full_name} (${req.phone})</span>
+                                </div>
+                                <small class="text-muted">${date}</small>
+                            </div>
+                            <div class="mb-3 p-2 bg-white rounded border">
+                                ${req.message}
+                            </div>
+                            <div class="row g-2 align-items-center">
+                                <div class="col-md-3">
+                                    <select class="form-select form-select-sm" onchange="updateRequest(${req.id}, {status: this.value})">
+                                        <option value="new" ${req.status === 'new' ? 'selected' : ''}>סטטוס: חדש</option>
+                                        <option value="in_progress" ${req.status === 'in_progress' ? 'selected' : ''}>סטטוס: בטיפול</option>
+                                        <option value="completed" ${req.status === 'completed' ? 'selected' : ''}>סטטוס: הושלם</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-3">
+                                    <select class="form-select form-select-sm" onchange="updateRequest(${req.id}, {assigned_to: this.value})">
+                                        ${assigneesOptions}
+                                    </select>
+                                </div>
+                                <div class="col-md-6 text-end">
+                                    <button class="btn btn-sm btn-outline-primary" onclick="openResponseModal(${req.id})">השב ב-SMS</button>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                });
+            }
+            $('#requestsContainer').html(html);
+        } catch (err) {
+            $('#requestsContainer').html('<div class="alert alert-danger">שגיאה בטעינת הנתונים.</div>');
+        }
+    }
+
+    async function updateRequest(id, data) {
+        try {
+            await fetch('/api/support/update', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id, ...data })
+            });
+            loadRequests();
+        } catch (err) {
+            alert('שגיאה בעדכון הפנייה');
+        }
+    }
+
+    function openResponseModal(id) {
+        $('#modalRequestId').val(id);
+        $('#modalResponseText').val('');
+        const modal = new bootstrap.Modal(document.getElementById('responseModal'));
+        modal.show();
+    }
+
+    async function sendResponse() {
+        const id = $('#modalRequestId').val();
+        const response_text = $('#modalResponseText').val();
+        
+        if (!response_text) {
+            alert('אנא הכנס תוכן להודעה');
+            return;
+        }
+        
+        try {
+            const res = await fetch('/api/support/update', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id, response_text })
+            });
+            const data = await res.json();
+            if (data.status === 'success') {
+                bootstrap.Modal.getInstance(document.getElementById('responseModal')).hide();
+                loadRequests();
+            }
+        } catch (err) {
+            alert('שגיאה בשליחת התגובה');
+        }
+    }
+
+    $(document).ready(() => {
+        loadAssignees(); // This calls loadRequests internally
+        $('#statusFilter, #categoryFilter, #assigneeFilter').change(loadRequests);
+    });
+</script>
+
+</body>
+</html>

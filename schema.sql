@@ -61,3 +61,21 @@ CREATE TABLE IF NOT EXISTS sms_templates (
     content TEXT NOT NULL,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS support_requests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    category TEXT NOT NULL,              -- 'bug', 'feature', 'other'
+    message TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'new',  -- 'new', 'in_progress', 'completed'
+    assigned_to TEXT,                    -- name of the person handling the request
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    resolved_at TIMESTAMP,
+    last_response_at TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS assignees (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    is_active INTEGER DEFAULT 1
+);
