@@ -88,3 +88,10 @@ CREATE TABLE IF NOT EXISTS assignees (
     name TEXT NOT NULL UNIQUE,
     is_active INTEGER DEFAULT 1
 );
+
+CREATE TABLE IF NOT EXISTS user_states (
+    phone TEXT PRIMARY KEY,
+    state TEXT NOT NULL,
+    data TEXT,                               -- JSON data for additional state info
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);

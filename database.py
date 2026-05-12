@@ -115,15 +115,46 @@ class PostgresConnWrapper:
         return []
 
 
+# Connection pool for PostgreSQL (thread-safe)
+_pg_pool = None
+
 def get_conn():
+    global _pg_pool
     if DATABASE_URL:
         import psycopg2
-        url = DATABASE_URL
-        if url.startswith("postgres://"):
-            url = url.replace("postgres://", "postgresql://", 1)
+        from psycopg2 import pool
         
-        conn = psycopg2.connect(url, sslmode='require')
-        return PostgresConnWrapper(conn)
+        # Initialize pool on first use
+        if _pg_pool is None:
+            url = DATABASE_URL
+            if url.startswith("postgres://"):
+                url = url.replace("postgres://", "postgresql://", 1)
+            
+            try:
+                _pg_pool = pool.ThreadedConnectionPool(
+                    minconn=2,
+                    maxconn=20,
+                    dsn=url,
+                    sslmode='require'
+                )
+            except Exception as e:
+                print(f"Error creating connection pool: {e}")
+                # Fallback to direct connection
+                conn = psycopg2.connect(url, sslmode='require')
+                return PostgresConnWrapper(conn)
+        
+        # Get connection from pool
+        try:
+            conn = _pg_pool.getconn()
+            return PostgresConnWrapper(conn)
+        except Exception as e:
+            print(f"Error getting connection from pool: {e}")
+            # Fallback to direct connection
+            url = DATABASE_URL
+            if url.startswith("postgres://"):
+                url = url.replace("postgres://", "postgresql://", 1)
+            conn = psycopg2.connect(url, sslmode='require')
+            return PostgresConnWrapper(conn)
     else:
         conn = sqlite3.connect(DB_PATH, timeout=10.0)
         conn.row_factory = sqlite3.Row

@@ -8,9 +8,42 @@ from registration import register_user, subscribe, get_all_tractates, get_user_s
 from scheduler import send_daily_questions, has_sent_today, send_next_question_or_finish
 from database import get_conn, float_to_daf_str, daf_to_float
 from sms_service import get_sms_history, send_sms, receive_sms
+from state_manager import get_user_state, set_user_state, clear_user_state, update_user_state_data
 
-# Global state to track multi-step conversations
-USER_STATES = {}
+# Backward compatibility: Keep USER_STATES as a proxy to DB
+class UserStatesProxy:
+    """Proxy dict that reads/writes to database instead of memory"""
+    def get(self, phone, default=None):
+        state = get_user_state(phone)
+        return state if state else default
+    
+    def __getitem__(self, phone):
+        state = get_user_state(phone)
+        if state is None:
+            raise KeyError(phone)
+        return state
+    
+    def __setitem__(self, phone, value):
+        if isinstance(value, dict) and "state" in value:
+            state_name = value.pop("state")
+            set_user_state(phone, state_name, **value)
+        else:
+            raise ValueError("State must be a dict with 'state' key")
+    
+    def __delitem__(self, phone):
+        clear_user_state(phone)
+    
+    def __contains__(self, phone):
+        return get_user_state(phone) is not None
+    
+    def clear(self):
+        """Clear all states (for testing)"""
+        conn = get_conn()
+        conn.execute("DELETE FROM user_states")
+        conn.commit()
+        conn.close()
+
+USER_STATES = UserStatesProxy()
 
 def clear_screen():
     os.system('cls' if os.name == 'nt' else 'clear')

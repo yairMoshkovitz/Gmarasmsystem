@@ -316,7 +316,10 @@ def has_pending_question(user_id: int, same_day_only: bool = False) -> bool:
     return row is not None
 
 def run_hour(hour: int = None, force_date: date = None):
-    """Main entry point for scheduled task."""
+    """Main entry point for scheduled task with parallel SMS sending."""
+    import time
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    
     israel_now = get_israel_time()
     today = force_date or date.today()
     if hour is None:
@@ -367,13 +370,6 @@ def run_hour(hour: int = None, force_date: date = None):
     elif day_of_week == 5 and hour == 21:
         conn = get_conn()
         today_str = today.isoformat()
-        # Find all subscriptions that were supposed to run during Shabbat
-        # (Friday > 16:00 OR Saturday < 21:00)
-        # Since we run daily, we just need to find all active subs that haven't sent today
-        # But specifically those whose send_hour is in the Shabbat range.
-        # Actually, simpler: Saturday 21:00 runs for EVERYONE who hasn't sent today? 
-        # No, the user said "Shabbat questions will be sent at 21:00".
-        # This implies people who usually get it on Shabbat.
         rows = conn.execute(
             """
             SELECT s.*, t.name as tractate_name, u.phone, u.name as user_name
@@ -387,15 +383,8 @@ def run_hour(hour: int = None, force_date: date = None):
         ).fetchall()
         conn.close()
         
-        # Filter in Python for clarity of logic:
-        # A sub is "Shabbat sub" if its normal hour is (Friday > 16) OR (Saturday < 21)
-        # But wait, send_hour is just an integer 0-23.
-        # If it's Saturday 21:00, we should send for everyone whose hour was 0-20 today.
-        # AND those whose hour was 17-23 on Friday (if we want to be perfect, but daily check handles it).
-        
         all_subs = [dict(r) for r in rows]
         for sub in all_subs:
-            # If normal hour is between 0 and 20, they missed it today because of Shabbat
             if 0 <= sub['send_hour'] < 21:
                 due.append(sub)
         print(f"Saturday 21:00: Catching all Shabbat messages. Count: {len(due)}")
@@ -405,8 +394,9 @@ def run_hour(hour: int = None, force_date: date = None):
         due = get_due_subscriptions(hour, today.isoformat())
 
     if due:
+        start_time = time.time()
         try:
-            print(f"Hour {hour}: Processing {len(due)} subscriptions.")
+            print(f"Hour {hour}: Processing {len(due)} subscriptions in parallel.")
         except:
             pass
         
@@ -426,12 +416,13 @@ def run_hour(hour: int = None, force_date: date = None):
                 lines.append(f"{i}. {s['tractate_name']} {range_str}")
             return "\n".join(lines)
 
-        for uid, subs in user_due.items():
+        def process_user_subs(uid, subs):
+            """Process subscriptions for a single user (thread-safe)"""
             try:
                 # Multi-subscription check: 
                 if has_pending_question(uid, same_day_only=True):
                     print(f"User {uid} already has a pending question from today. Skipping for now.")
-                    continue
+                    return
                 
                 if len(subs) == 1:
                     send_daily_questions(subs[0])
@@ -446,6 +437,21 @@ def run_hour(hour: int = None, force_date: date = None):
                     send_sms(phone, msg, uid)
             except Exception as e:
                 print(f"❌ Error processing user {uid}: {e}")
+
+        # Use ThreadPoolExecutor for parallel processing
+        max_workers = min(50, len(user_due))  # Max 50 concurrent threads
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(process_user_subs, uid, subs): uid for uid, subs in user_due.items()}
+            
+            for future in as_completed(futures):
+                uid = futures[future]
+                try:
+                    future.result()
+                except Exception as e:
+                    print(f"❌ Thread error for user {uid}: {e}")
+        
+        elapsed = time.time() - start_time
+        print(f"✅ Completed processing {len(user_due)} users in {elapsed:.2f} seconds")
 
 if __name__ == "__main__":
     run_hour()
