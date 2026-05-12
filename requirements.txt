@@ -5,3 +5,5 @@ psycopg2-binary
 dj-database-url
 flask-cors
 python-dotenv
+pytest
+pytest-html
