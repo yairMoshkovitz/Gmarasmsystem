@@ -58,8 +58,17 @@ CREATE TABLE IF NOT EXISTS sms_log (
 
 CREATE TABLE IF NOT EXISTS sms_templates (
     key TEXT PRIMARY KEY,
-    content TEXT NOT NULL,
+    content TEXT,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS pending_admin_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    message TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    sent_at TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id)
 );
 
 CREATE TABLE IF NOT EXISTS support_requests (

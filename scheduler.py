@@ -4,6 +4,7 @@ scheduler.py - Hourly task for sending daily questions
 from datetime import datetime, date
 from database import get_conn, float_to_daf_str, load_questions
 from sms_service import send_sms
+import os
 from questions_engine import (
     select_questions_for_range,
     get_already_sent_ids,
@@ -265,6 +266,23 @@ def send_daily_questions(sub: dict):
     if has_sent_today(sub["user_id"], sub["id"]):
         # print(f"Skipping sub {sub['id']} - already sent today.")
         return
+
+    # Check if there are pending admin messages for this user
+    conn = get_conn()
+    pending = conn.execute(
+        "SELECT id, message FROM pending_admin_messages WHERE user_id=? AND sent_at IS NULL",
+        (sub["user_id"],)
+    ).fetchall()
+    
+    if pending:
+        for p in pending:
+            send_sms(sub["phone"], p["message"], sub["user_id"])
+            conn.execute(
+                "UPDATE pending_admin_messages SET sent_at=CURRENT_TIMESTAMP WHERE id=?",
+                (p["id"],)
+            )
+        conn.commit()
+    conn.close()
 
     # Try to send the first question
     send_next_question_or_finish(sub)

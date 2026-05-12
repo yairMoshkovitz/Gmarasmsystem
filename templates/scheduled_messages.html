@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ניהול הודעות מתוזמנות - גמרא SMS</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { background-color: #f0f2f5; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        .navbar { background-color: #075e54; color: white; }
+        .card { border-radius: 15px; border: none; box-shadow: 0 4px 12px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        .btn-custom { border-radius: 30px; font-weight: bold; }
+        .nav-link { color: white !important; }
+        .hour-badge { background-color: #128c7e; color: white; padding: 5px 10px; border-radius: 10px; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+<nav class="navbar navbar-expand-lg">
+    <div class="container">
+        <a class="navbar-brand text-white" href="/">גמרא SMS</a>
+        <div class="navbar-nav ms-auto">
+            <a class="nav-link" href="/">לוח בקרה</a>
+            <a class="nav-link" href="/analytics">ניתוח נתונים</a>
+        </div>
+    </div>
+</nav>
+
+<div class="container mt-4">
+    <h1 class="mb-4">ניהול הודעות מתוזמנות</h1>
+
+    <div class="row">
+        <div class="col-md-4">
+            <div class="card p-4">
+                <h4>מסננים</h4>
+                <div class="mb-3">
+                    <label class="form-label">סוג סינון שעה:</label>
+                    <select id="hourFilterType" class="form-select">
+                        <option value="exact">שעה מדויקת</option>
+                        <option value="after">אחרי שעה</option>
+                        <option value="before">לפני שעה</option>
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">שעה (0-23):</label>
+                    <input type="number" id="hourValue" class="form-control" min="0" max="23" value="22">
+                </div>
+                <button onclick="fetchSubscriptions()" class="btn btn-primary w-100 btn-custom">רענן רשימה</button>
+            </div>
+
+            <div class="card p-4">
+                <h4>הודעה מראש (נוספת)</h4>
+                <p class="small text-muted">בחר הודעה מוכנה מראש או כתוב אחת חדשה</p>
+                <div class="mb-3">
+                    <button onclick="setMessage('תזכורת: בעוד שעה נשלח את שאלות הגמרא היומיות. בהצלחה!')" class="btn btn-outline-secondary btn-sm mb-1 w-100">תזכורת (בעוד שעה)</button>
+                    <button onclick="setMessage('שלום, רצינו להודיע שנוספו שאלות חדשות למערכת. לימוד פורה!')" class="btn btn-outline-secondary btn-sm mb-1 w-100">עדכון על שאלות</button>
+                </div>
+                <hr>
+                <h4>שליחת הודעה</h4>
+                <div class="mb-3">
+                    <label class="form-label">תוכן ההודעה:</label>
+                    <textarea id="messageText" class="form-control" rows="5" placeholder="הכנס את תוכן ההודעה כאן..."></textarea>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">מתי לשלוח?</label>
+                    <div class="form-check">
+                        <input class="form-check-input" type="radio" name="sendMode" id="sendNow" value="now" checked>
+                        <label class="form-check-label" for="sendNow">עכשיו (הודעה נפרדת)</label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="radio" name="sendMode" id="sendWithDaily" value="with_daily">
+                        <label class="form-check-label" for="sendWithDaily">יחד עם השאלות היומיות</label>
+                    </div>
+                </div>
+                <div class="alert alert-info py-2">
+                    <small id="modeInfo">ההודעה תישלח מיד כהודעה נפרדת לכל המנויים ברשימה.</small>
+                </div>
+                <button onclick="sendBroadcast()" id="sendBtn" class="btn btn-success w-100 btn-custom mb-2">שלח / תזמן הודעה</button>
+                <hr>
+                <button onclick="triggerDailyNow()" id="triggerBtn" class="btn btn-warning w-100 btn-custom">שלח להם שאלות יומיות כעת</button>
+            </div>
+        </div>
+
+        <div class="col-md-8">
+            <div class="card p-4">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h4 class="mb-0">מנויים תואמים (<span id="countDisplay">0</span>)</h4>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>שם</th>
+                                <th>טלפון</th>
+                                <th>מסכת</th>
+                                <th>שעת שליחה</th>
+                            </tr>
+                        </thead>
+                        <tbody id="subsTableBody">
+                            <!-- Data will be loaded here -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    let currentSubs = [];
+
+    async function fetchSubscriptions() {
+        const type = document.getElementById('hourFilterType').value;
+        const hour = document.getElementById('hourValue').value;
+        
+        try {
+            const response = await fetch(`/api/scheduled-messages/subscriptions?type=${type}&hour=${hour}`);
+            const data = await response.json();
+            currentSubs = data;
+            renderTable();
+        } catch (err) {
+            console.error('Error fetching subs:', err);
+            alert('שגיאה בטעינת הנתונים');
+        }
+    }
+
+    function setMessage(txt) {
+        document.getElementById('messageText').value = txt;
+    }
+
+    function renderTable() {
+        const tbody = document.getElementById('subsTableBody');
+        const countDisplay = document.getElementById('countDisplay');
+        
+        tbody.innerHTML = '';
+        countDisplay.innerText = currentSubs.length;
+        
+        currentSubs.forEach(sub => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td>${sub.user_name || 'ללא שם'}</td>
+                <td>${sub.phone}</td>
+                <td>${sub.tractate_name}</td>
+                <td><span class="hour-badge">${sub.send_hour}:00</span></td>
+            `;
+            tbody.appendChild(tr);
+        });
+        
+        if (currentSubs.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="4" class="text-center">לא נמצאו מנויים תואמים</td></tr>';
+        }
+    }
+
+    document.querySelectorAll('input[name="sendMode"]').forEach(radio => {
+        radio.addEventListener('change', (e) => {
+            const info = document.getElementById('modeInfo');
+            if (e.target.value === 'now') {
+                info.innerText = 'ההודעה תישלח מיד כהודעה נפרדת לכל המנויים ברשימה.';
+            } else {
+                info.innerText = 'ההודעה תמתין במערכת ותישלח לכל מנוי יחד עם השאלות היומיות בשעה הקבועה שלו.';
+            }
+        });
+    });
+
+    async function triggerDailyNow() {
+        if (currentSubs.length === 0) {
+            alert('אין מנויים ברשימה');
+            return;
+        }
+        if (!confirm(`האם להפעיל כעת את שליחת השאלות היומיות ל-${currentSubs.length} מנויים?`)) {
+            return;
+        }
+        const btn = document.getElementById('triggerBtn');
+        btn.disabled = true;
+        btn.innerText = 'מעבד...';
+        try {
+            const subIds = currentSubs.map(s => s.id);
+            const response = await fetch('/api/scheduled-messages/trigger-daily', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ subscription_ids: subIds })
+            });
+            const result = await response.json();
+            alert(`בוצע! שאלות נשלחו ל-${result.triggered_count} מנויים.`);
+        } catch (err) {
+            alert('שגיאה בהפעלת השאלות');
+        } finally {
+            btn.disabled = false;
+            btn.innerText = 'שלח להם שאלות יומיות כעת';
+        }
+    }
+
+    async function sendBroadcast() {
+        const message = document.getElementById('messageText').value.trim();
+        const mode = document.querySelector('input[name="sendMode"]:checked').value;
+        
+        if (!message) {
+            alert('נא להזין תוכן להודעה');
+            return;
+        }
+        
+        if (currentSubs.length === 0) {
+            alert('אין מנויים ברשימה לשלוח אליהם');
+            return;
+        }
+        
+        const confirmMsg = mode === 'now' 
+            ? `האם לשלוח את ההודעה כעת ל-${currentSubs.length} מנויים?`
+            : `האם לתזמן את ההודעה לצירוף לשאלות היומיות עבור ${currentSubs.length} מנויים?`;
+
+        if (!confirm(confirmMsg)) {
+            return;
+        }
+        
+        const sendBtn = document.getElementById('sendBtn');
+        sendBtn.disabled = true;
+        sendBtn.innerText = 'מעבד...';
+        
+        try {
+            const subIds = currentSubs.map(s => s.id);
+            const response = await fetch('/api/scheduled-messages/send', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    subscription_ids: subIds,
+                    message: message,
+                    mode: mode
+                })
+            });
+            
+            const result = await response.json();
+            if (result.status === 'success') {
+                const successMsg = mode === 'now' 
+                    ? `ההודעה נשלחה בהצלחה ל-${result.sent_count} מנויים!`
+                    : `ההודעה תוזמנה בהצלחה עבור ${result.sent_count} מנויים ותשלח עם הלימוד הבא שלהם.`;
+                alert(successMsg);
+                document.getElementById('messageText').value = '';
+            } else {
+                alert('שגיאה בשליחת ההודעות: ' + result.error);
+            }
+        } catch (err) {
+            console.error('Error sending broadcast:', err);
+            alert('שגיאה בתקשורת עם השרת');
+        } finally {
+            sendBtn.disabled = false;
+            sendBtn.innerText = 'שלח הודעה כעת';
+        }
+    }
+
+    // Initial load
+    window.onload = fetchSubscriptions;
+</script>
+
+</body>
+</html>

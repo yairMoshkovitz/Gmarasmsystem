@@ -296,6 +296,126 @@ def edit_templates():
 def support_page():
     return render_template('support.html')
 
+@app.route('/scheduled-messages')
+@basic_auth_required
+def scheduled_messages_page():
+    return render_template('scheduled_messages.html')
+
+@app.route('/api/scheduled-messages/subscriptions')
+@basic_auth_required
+def get_scheduled_subscriptions():
+    filter_type = request.args.get('type', 'exact')
+    hour = request.args.get('hour', type=int)
+    
+    if hour is None:
+        return jsonify([])
+        
+    query = """
+        SELECT s.*, u.phone, u.name as user_name, t.name as tractate_name 
+        FROM subscriptions s
+        JOIN users u ON s.user_id = u.id
+        JOIN tractates t ON s.tractate_id = t.id
+        WHERE s.is_active = 1
+    """
+    params = []
+    if filter_type == 'exact':
+        query += " AND s.send_hour = ?"
+        params.append(hour)
+    elif filter_type == 'after':
+        query += " AND s.send_hour > ?"
+        params.append(hour)
+    elif filter_type == 'before':
+        query += " AND s.send_hour < ?"
+        params.append(hour)
+        
+    conn = get_conn()
+    rows = conn.execute(query, params).fetchall()
+    conn.close()
+    
+    return jsonify([dict(r) for r in rows])
+
+@app.route('/api/scheduled-messages/send', methods=['POST'])
+@basic_auth_required
+def send_scheduled_broadcast():
+    data = request.json
+    sub_ids = data.get('subscription_ids', [])
+    message = data.get('message')
+    mode = data.get('mode', 'now') # 'now' or 'with_daily'
+    
+    if not message or not sub_ids:
+        return jsonify({"error": "Missing message or subscriptions"}), 400
+        
+    from sms_service import send_sms
+    
+    conn = get_conn()
+    # Fetch phone numbers and user_ids for the selected subscriptions
+    placeholders = ",".join(["?"] * len(sub_ids))
+    rows = conn.execute(f"""
+        SELECT s.user_id, u.phone 
+        FROM subscriptions s 
+        JOIN users u ON s.user_id = u.id 
+        WHERE s.id IN ({placeholders})
+    """, sub_ids).fetchall()
+    
+    sent_count = 0
+    processed_users = set()
+    
+    if mode == 'now':
+        for row in rows:
+            uid = row['user_id']
+            if uid not in processed_users:
+                send_sms(row['phone'], message, uid)
+                processed_users.add(uid)
+                sent_count += 1
+    else:
+        # Schedule for later (queue in pending_admin_messages)
+        for row in rows:
+            uid = row['user_id']
+            if uid not in processed_users:
+                conn.execute(
+                    "INSERT INTO pending_admin_messages (user_id, message) VALUES (?, ?)",
+                    (uid, message)
+                )
+                processed_users.add(uid)
+                sent_count += 1
+        conn.commit()
+            
+    conn.close()
+    return jsonify({"status": "success", "sent_count": sent_count})
+
+@app.route('/api/scheduled-messages/trigger-daily', methods=['POST'])
+@basic_auth_required
+def trigger_daily_questions_manually():
+    data = request.json
+    sub_ids = data.get('subscription_ids', [])
+    
+    if not sub_ids:
+        return jsonify({"error": "No subscriptions selected"}), 400
+        
+    from scheduler import send_daily_questions
+    from database import get_conn
+    
+    conn = get_conn()
+    placeholders = ",".join(["?"] * len(sub_ids))
+    rows = conn.execute(f"""
+        SELECT s.*, t.name as tractate_name, u.phone, u.name as user_name
+        FROM subscriptions s
+        JOIN tractates t ON s.tractate_id = t.id
+        JOIN users u ON s.user_id = u.id
+        WHERE s.id IN ({placeholders})
+    """, sub_ids).fetchall()
+    conn.close()
+    
+    triggered_count = 0
+    for r in rows:
+        try:
+            send_daily_questions(dict(r))
+            triggered_count += 1
+        except Exception as e:
+            print(f"Error triggering daily for sub {r['id']}: {e}")
+            
+    return jsonify({"status": "success", "triggered_count": triggered_count})
+
 @app.route('/api/support/assignees', methods=['GET', 'POST', 'DELETE'])
 @basic_auth_required
 def manage_assignees():
