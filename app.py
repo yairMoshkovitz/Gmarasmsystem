@@ -630,21 +630,30 @@ def inforu_webhook():
 def process_incoming_sms(phone, message):
     # Check if user reached daily limit before processing
     conn = get_conn()
-    from datetime import date
-    today_str = date.today().isoformat()
-    # Cross-DB fix for daily count
     is_postgres = bool(os.environ.get("DATABASE_URL"))
-    if is_postgres:
-        count_query = "SELECT COUNT(*) FROM sms_log WHERE phone=? AND direction='out' AND sent_at::text LIKE ?"
-    else:
-        count_query = "SELECT COUNT(*) FROM sms_log WHERE phone=? AND direction='out' AND sent_at LIKE ?"
-    
-    daily_count = conn.execute(count_query, (phone, f"{today_str}%")).fetchone()[0]
-    
-    if daily_count >= 30:
-        print(f"Blocked incoming SMS from {phone}: Daily limit of 30 SMS reached.")
-        conn.close()
-        return
+    try:
+        # Cross-DB fix for daily count of OUTGOING messages only
+        if is_postgres:
+            count_query = "SELECT COUNT(*) FROM sms_log WHERE phone=? AND direction='out' AND sent_at::date = CURRENT_DATE"
+        else:
+            count_query = "SELECT COUNT(*) FROM sms_log WHERE phone=? AND direction='out' AND date(sent_at) = date('now')"
+        
+        daily_count = conn.execute(count_query, (phone,)).fetchone()[0]
+        
+        if daily_count >= 30:
+            print(f"Blocked incoming SMS from {phone}: Daily limit of 30 OUTGOING SMS reached.")
+            # Send a one-time warning if possible (though we might be over the limit, sms_service handles the hard block)
+            from sms_service import send_sms
+            send_sms(phone, "הגעת למגבלת ההודעות היומית (30). המערכת לא תוכל לשלוח או לקבל הודעות נוספות היום.")
+            conn.close()
+            return
+    except Exception as e:
+        print(f"Error checking daily limit in process_incoming_sms: {e}")
+        if is_postgres and hasattr(conn, 'conn'):
+            try:
+                conn.conn.rollback()
+            except:
+                pass
 
     try:
         receive_sms(phone, message)

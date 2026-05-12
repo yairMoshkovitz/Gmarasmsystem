@@ -162,32 +162,18 @@ def send_next_question_or_finish(sub: dict, override_queue: list = None):
     # 1. Check daily limit (e.g., 2 questions per day)
     conn = get_conn()
     
-    # Use SQLite date function to ensure we count only today's questions
-    count_row = conn.execute(
-        "SELECT COUNT(*) FROM sent_questions WHERE subscription_id=? AND date(sent_at) = date('now')",
-        (sub["id"],)
-    ).fetchone()
-    
-    # Check if we are running in Postgres where 'now' might be slightly different syntax
-    # For compatibility, we can check by simple str starts with
-    if count_row is None or count_row[0] == 0:
-        # Fallback for Postgres or if previous query failed
-        # SQLite doesn't support ::text, so we try a safer approach
-        today_str = str(date.today())
-        try:
-            count_row = conn.execute(
-                "SELECT COUNT(*) FROM sent_questions WHERE subscription_id=? AND sent_at LIKE ?",
-                (sub["id"], f"{today_str}%")
-            ).fetchone()
-        except:
-             # If that also fails (e.g. on Postgres), try the ::text cast
-             try:
-                 count_row = conn.execute(
-                    "SELECT COUNT(*) FROM sent_questions WHERE subscription_id=? AND sent_at::text LIKE ?",
-                    (sub["id"], f"{today_str}%")
-                 ).fetchone()
-             except:
-                 pass
+    # Use DB specific date functions
+    is_postgres = bool(os.environ.get("DATABASE_URL"))
+    if is_postgres:
+        count_row = conn.execute(
+            "SELECT COUNT(*) FROM sent_questions WHERE subscription_id=? AND sent_at::date = CURRENT_DATE",
+            (sub["id"],)
+        ).fetchone()
+    else:
+        count_row = conn.execute(
+            "SELECT COUNT(*) FROM sent_questions WHERE subscription_id=? AND date(sent_at) = date('now')",
+            (sub["id"],)
+        ).fetchone()
 
     conn.close()
     

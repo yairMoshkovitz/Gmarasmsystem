@@ -525,14 +525,17 @@ def main():
             if message.lower() == 'q': break
             if not message: continue
             
-            # Check daily limit
+            # Check daily limit - OUTGOING messages only, calendar day
             conn = get_conn()
-            from datetime import datetime, timedelta
-            last_24h = (datetime.utcnow() - timedelta(hours=24)).isoformat()
-            count_query = "SELECT COUNT(*) FROM sms_log WHERE phone=? AND direction='out' AND sent_at >= ?"
-            daily_count = conn.execute(count_query, (phone, last_24h)).fetchone()[0]
+            is_postgres = bool(os.environ.get("DATABASE_URL"))
+            if is_postgres:
+                count_query = "SELECT COUNT(*) FROM sms_log WHERE phone=? AND direction='out' AND sent_at::date = CURRENT_DATE"
+            else:
+                count_query = "SELECT COUNT(*) FROM sms_log WHERE phone=? AND direction='out' AND date(sent_at) = date('now')"
+            
+            daily_count = conn.execute(count_query, (phone,)).fetchone()[0]
             if daily_count >= 30:
-                print(f"Blocked incoming SMS from {phone}: Daily limit of 30 SMS reached.")
+                print(f"Blocked incoming SMS from {phone}: Daily limit of 30 OUTGOING SMS reached.")
                 conn.close()
                 continue
                 

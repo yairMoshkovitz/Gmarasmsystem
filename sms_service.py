@@ -81,14 +81,15 @@ def send_sms(phone: str, message: str, user_id: int = None):
     Send an SMS (Simulated or Real based on LIVE_MODE).
     """
     conn = get_conn()
+    is_postgres = bool(os.environ.get("DATABASE_URL"))
     
-    # Check daily limit (30 messages per user per day)
-    from datetime import datetime, timedelta
-    # Use last 24 hours to avoid timezone issues with CURRENT_TIMESTAMP in SQLite
-    last_24h = (datetime.utcnow() - timedelta(hours=24)).isoformat()
+    # Check daily limit (30 messages per user per day) - Calendar day
+    if is_postgres:
+        count_query = "SELECT COUNT(*) FROM sms_log WHERE phone=? AND direction='out' AND sent_at::date = CURRENT_DATE"
+    else:
+        count_query = "SELECT COUNT(*) FROM sms_log WHERE phone=? AND direction='out' AND date(sent_at) = date('now')"
     
-    count_query = "SELECT COUNT(*) FROM sms_log WHERE phone=? AND direction='out' AND sent_at >= ?"
-    daily_count = conn.execute(count_query, (phone, last_24h)).fetchone()[0]
+    daily_count = conn.execute(count_query, (phone,)).fetchone()[0]
     
     LIMIT = 30
     if daily_count >= LIMIT:
@@ -133,7 +134,7 @@ def send_sms(phone: str, message: str, user_id: int = None):
     
     # Calculate new daily count after insertion
     conn = get_conn()
-    new_daily_count = conn.execute(count_query, (phone, last_24h)).fetchone()[0]
+    new_daily_count = conn.execute(count_query, (phone,)).fetchone()[0]
     conn.close()
     
     try:
