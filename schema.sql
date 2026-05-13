@@ -95,3 +95,9 @@ CREATE TABLE IF NOT EXISTS user_states (
     data TEXT,                               -- JSON data for additional state info
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);

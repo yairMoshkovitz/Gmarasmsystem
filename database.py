@@ -437,6 +437,31 @@ def float_to_daf_str(val: float) -> str:
     return f"{daf_str} {amud}"
 
 
+def get_setting(key: str, default=None):
+    """Retrieve a setting from the database."""
+    conn = get_conn()
+    row = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+    conn.close()
+    if row:
+        return row["value"]
+    return default
+
+
+def set_setting(key: str, value: str):
+    """Save a setting to the database."""
+    conn = get_conn()
+    is_postgres = bool(os.environ.get("DATABASE_URL"))
+    if is_postgres:
+        conn.execute("""
+            INSERT INTO settings (key, value, updated_at) VALUES (%s, %s, CURRENT_TIMESTAMP)
+            ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at
+        """, (key, str(value)))
+    else:
+        conn.execute("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)", (key, str(value)))
+    conn.commit()
+    conn.close()
+
+
 if __name__ == "__main__":
     init_db()
     seed_tractates()

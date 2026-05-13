@@ -17,9 +17,9 @@ def basic_auth_required(f):
     from functools import wraps
     @wraps(f)
     def decorated(*args, **kwargs):
-        # Skip auth for webhooks or other external APIs if necessary
+        # Skip auth for webhooks
         path = request.path.lower()
-        if path.startswith('/webhook/') or path == '/webhook':
+        if path.startswith('/webhook/') or path == '/webhook' or path == '/send':
             return f(*args, **kwargs)
 
         auth = request.headers.get('Authorization')
@@ -48,10 +48,8 @@ def basic_auth_required(f):
 
 @app.before_request
 def basic_auth_legacy():
-    # Keep the legacy before_request for overall protection
-    # but some routes might use the decorator if they need more control
     path = request.path.lower()
-    if path.startswith('/webhook/') or path == '/webhook':
+    if path.startswith('/webhook/') or path == '/webhook' or path == '/send':
         return
 
     auth = request.headers.get('Authorization')
@@ -157,8 +155,6 @@ def analytics_data():
     is_postgres = bool(os.environ.get("DATABASE_URL"))
     placeholder = "%s" if is_postgres else "?"
     
-    # Base user query
-    # Note: In Postgres, %% is needed to escape % when using %s placeholders
     p_esc = "%" if not is_postgres else "%%"
     user_query = f"""
         SELECT u.*, 
@@ -179,12 +175,8 @@ def analytics_data():
         params.append(tractate_id)
         
     users = conn.execute(user_query, params).fetchall()
-    
-    # Filter by min_yes in Python for simplicity if needed, or in SQL
     filtered_users = [dict(u) for u in users if u['yes_count'] >= min_yes]
     
-    # Get raw tables for the "DB Explorer" part
-    # Limit for performance
     raw_users = conn.execute("SELECT * FROM users LIMIT 1000").fetchall()
     raw_subs = conn.execute("""
         SELECT s.*, u.phone, u.name as user_name, t.name as tractate_name 
@@ -219,18 +211,13 @@ def chart_stats():
     conn = get_conn()
     is_postgres = bool(os.environ.get("DATABASE_URL"))
     
-    # 1. Users over time (last 30 days)
     if is_postgres:
         users_query = "SELECT date(registered_at) as date, count(*) as count FROM users GROUP BY date(registered_at) ORDER BY date DESC LIMIT 30"
     else:
         users_query = "SELECT date(registered_at) as date, count(*) as count FROM users GROUP BY date(registered_at) ORDER BY date DESC LIMIT 30"
     
     users_data = conn.execute(users_query).fetchall()
-    
-    # 2. Answers status (Yes/No/No Response)
-    # Simple logic: if response_text exists and contains common "Yes" words in Hebrew
     yes_keywords = ['כן', 'נכון', 'אמת', 'יאפ', 'חיובי']
-    # We'll fetch last 100 sent questions that have a response
     responses = conn.execute("SELECT response_text FROM sent_questions WHERE responded_at IS NOT NULL ORDER BY responded_at DESC LIMIT 500").fetchall()
     
     yes_count = 0
@@ -242,7 +229,6 @@ def chart_stats():
         else:
             no_count += 1
             
-    # 3. Age distribution
     age_data = conn.execute("SELECT CASE \
         WHEN age < 13 THEN 'עד 12' \
         WHEN age BETWEEN 13 AND 18 THEN '13-18' \
@@ -253,11 +239,7 @@ def chart_stats():
         ELSE 'לא צוין' END as age_group, count(*) as count \
         FROM users GROUP BY age_group").fetchall()
     
-    # 4. City distribution
     city_data = conn.execute("SELECT COALESCE(city, 'לא צוין') as city, count(*) as count FROM users GROUP BY city ORDER BY count DESC LIMIT 10").fetchall()
-
-    # 5. Subscriptions per Tractate (Total registrations)
-    # Using LEFT JOIN and looking for the most recent tractates or using IDs if name is missing
     tractate_stats = conn.execute("""
         SELECT COALESCE(t.name, 'מסכת #' || s.tractate_id) as name, count(s.id) as count 
         FROM subscriptions s
@@ -284,7 +266,6 @@ def index():
 @app.route('/edit-templates')
 def edit_templates():
     response = render_template('edit_templates.html')
-    # Prevent caching for the edit templates page
     return response, 200, {
         'Cache-Control': 'no-cache, no-store, must-revalidate',
         'Pragma': 'no-cache',
@@ -340,15 +321,13 @@ def send_scheduled_broadcast():
     data = request.json
     sub_ids = data.get('subscription_ids', [])
     message = data.get('message')
-    mode = data.get('mode', 'now') # 'now' or 'with_daily'
+    mode = data.get('mode', 'now')
     
     if not message or not sub_ids:
         return jsonify({"error": "Missing message or subscriptions"}), 400
         
     from sms_service import send_sms
-    
     conn = get_conn()
-    # Fetch phone numbers and user_ids for the selected subscriptions
     placeholders = ",".join(["?"] * len(sub_ids))
     rows = conn.execute(f"""
         SELECT s.user_id, u.phone 
@@ -368,7 +347,6 @@ def send_scheduled_broadcast():
                 processed_users.add(uid)
                 sent_count += 1
     else:
-        # Schedule for later (queue in pending_admin_messages)
         for row in rows:
             uid = row['user_id']
             if uid not in processed_users:
@@ -486,14 +464,12 @@ def update_support_request():
         return jsonify({"error": "Missing ID"}), 400
         
     conn = get_conn()
-    
     if status:
         conn.execute("UPDATE support_requests SET status = ? WHERE id = ?", (status, req_id))
-    if assigned_to is not None: # Can be empty string to unassign
+    if assigned_to is not None:
         conn.execute("UPDATE support_requests SET assigned_to = ? WHERE id = ?", (assigned_to, req_id))
         
     if response_text:
-        # Get user phone for the request
         req = conn.execute("""
             SELECT r.*, u.phone 
             FROM support_requests r 
@@ -536,16 +512,12 @@ def manage_templates():
         conn.commit()
         conn.close()
         
-        # Also update JSON file
         try:
             current_json = {}
             if os.path.exists(template_path):
                 with open(template_path, 'r', encoding='utf-8') as f:
                     current_json = json.load(f)
-            
-            # Update with new data
             current_json.update(data)
-            
             with open(template_path, 'w', encoding='utf-8') as f:
                 json.dump(current_json, f, ensure_ascii=False, indent=4)
         except Exception as e:
@@ -557,16 +529,12 @@ def manage_templates():
     conn = get_conn()
     rows = conn.execute("SELECT key, content FROM sms_templates").fetchall()
     conn.close()
-    
     templates = {r["key"]: r["content"] for r in rows}
     
-    # If DB is empty, try to load from JSON
     if not templates:
-        template_path = os.path.join(os.path.dirname(__file__), 'sms_templates.json')
         if os.path.exists(template_path):
             with open(template_path, 'r', encoding='utf-8') as f:
                 templates = json.load(f)
-                
     return jsonify(templates)
 
 @app.route('/api/templates/diff')
@@ -574,9 +542,7 @@ def templates_diff():
     template_path = os.path.join(os.path.dirname(__file__), 'sms_templates.json')
     if not os.path.exists(template_path):
         return jsonify({"error": "JSON file not found"}), 404
-        
     try:
-        # Force reload from file to catch external changes
         with open(template_path, 'r', encoding='utf-8') as f:
             json_templates = json.load(f)
     except Exception as e:
@@ -587,36 +553,23 @@ def templates_diff():
     conn.close()
     db_templates = {r["key"]: r["content"] for r in rows}
     
-    diff = {
-        "new_in_json": [],
-        "different": [],
-        "only_in_db": []
-    }
-    
+    diff = {"new_in_json": [], "different": [], "only_in_db": []}
     for key, json_content in json_templates.items():
         if key not in db_templates:
             diff["new_in_json"].append({"key": key, "json_content": json_content})
-        else:
-            # Simple direct comparison first, fallback to whitespace-insensitive if needed
-            if db_templates[key] != json_content:
-                diff["different"].append({
-                    "key": key, 
-                    "json_content": json_content, 
-                    "db_content": db_templates[key]
-                })
+        elif db_templates[key] != json_content:
+            diff["different"].append({"key": key, "json_content": json_content, "db_content": db_templates[key]})
             
     for key in db_templates:
         if key not in json_templates:
             diff["only_in_db"].append(key)
-            
     return jsonify(diff)
 
 @app.route('/api/templates/sync', methods=['POST'])
 def sync_templates():
     from registration import clear_template_cache
     data = request.json
-    keys = data.get('keys', []) # List of keys to sync from JSON to DB
-    
+    keys = data.get('keys', [])
     template_path = os.path.join(os.path.dirname(__file__), 'sms_templates.json')
     with open(template_path, 'r', encoding='utf-8') as f:
         json_templates = json.load(f)
@@ -641,8 +594,7 @@ def sync_templates():
 @app.route('/api/templates/sync-to-json', methods=['POST'])
 def sync_templates_to_json():
     data = request.json
-    keys = data.get('keys', []) # List of keys to sync from DB to JSON
-    
+    keys = data.get('keys', [])
     conn = get_conn()
     rows = conn.execute("SELECT key, content FROM sms_templates").fetchall()
     conn.close()
@@ -654,14 +606,11 @@ def sync_templates_to_json():
         if os.path.exists(template_path):
             with open(template_path, 'r', encoding='utf-8') as f:
                 current_json = json.load(f)
-        
         for key in keys:
             if key in db_templates:
                 current_json[key] = db_templates[key]
-        
         with open(template_path, 'w', encoding='utf-8') as f:
             json.dump(current_json, f, ensure_ascii=False, indent=4)
-            
         return jsonify({"status": "success"})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -686,110 +635,87 @@ def send():
 @app.route('/webhook/inforu', methods=['GET', 'POST'], strict_slashes=False)
 @app.route('/WEBHOOK/INFORU', methods=['GET', 'POST'], strict_slashes=False)
 def inforu_webhook():
-    # Debug logging for Railway/Inforu issues
     print(f"--- Incoming Webhook {request.method} ---")
-    
     phone = None
     message = None
     
-    # 1. Handle Inforu XML format in IncomingXML form field
     incoming_xml = request.form.get('IncomingXML')
     if incoming_xml:
         try:
-            print("Parsing IncomingXML field...")
             root = ET.fromstring(incoming_xml)
             phone = root.findtext('PhoneNumber')
             message = root.findtext('Message')
         except Exception as e:
             print(f"Error parsing IncomingXML: {e}")
 
-    # 2. Try standard form parameters if XML didn't work
     if not phone:
-        phone = (request.args.get('Phone') or 
-                 request.form.get('Phone') or 
-                 request.args.get('from') or 
-                 request.form.get('from'))
-    
+        phone = (request.args.get('Phone') or request.form.get('Phone') or request.args.get('from') or request.form.get('from'))
     if not message:
-        message = (request.args.get('Text') or 
-                   request.form.get('Text') or 
-                   request.args.get('message') or 
-                   request.form.get('message'))
+        message = (request.args.get('Text') or request.form.get('Text') or request.args.get('message') or request.form.get('message'))
 
-    # 3. Handle JSON if still no luck (Inforu sometimes sends JSON body)
     if not phone or not message:
         try:
             json_data = request.get_json(silent=True)
             if json_data:
-                print("Checking JSON formats...")
-                # Try Inforu's specific nested JSON format
-                # Format: {"CustomerId":..., "Data": [{"Type": "PhoneNumber", "Value": "058...", "Message": "..."}]}
                 if 'Data' in json_data and isinstance(json_data['Data'], list) and len(json_data['Data']) > 0:
                     item = json_data['Data'][0]
                     phone = phone or item.get('Value')
                     message = message or item.get('Message')
-                
-                # Try flat JSON
                 phone = phone or json_data.get('Phone') or json_data.get('from') or json_data.get('PhoneNumber')
                 message = message or json_data.get('Text') or json_data.get('message') or json_data.get('Message')
         except Exception as e:
             print(f"Error checking JSON: {e}")
                
     if phone and message:
-        print(f"Webhook matched: phone={phone}, message={message}")
         process_incoming_sms(phone, message)
         return "OK", 200
-    
-    # 4. Final log if failed
-    print(f"Webhook failed. Path: {request.path}, Args: {request.args}, Form keys: {list(request.form.keys())}")
-    raw_body = request.get_data(as_text=True)
-    print(f"Raw Body: {raw_body[:200]}...")
-        
     return "No data found in request", 400
 
 def process_incoming_sms(phone, message):
-    # Check if user reached daily limit before processing
+    admin_phone = "0584555723"
+    if phone == admin_phone:
+        msg_clean = message.strip().upper()
+        if msg_clean in ["LIVE ON", "לייב פועל", "מצב חיבור"]:
+            set_live_mode(True)
+            from sms_service import send_sms
+            send_sms(phone, "מצב LIVE הופעל בהצלחה. המערכת תשלח כעת הודעות אמיתיות.")
+            return
+        elif msg_clean in ["LIVE OFF", "לייב כבוי", "מצב סימולציה"]:
+            set_live_mode(False)
+            from sms_service import send_sms
+            send_sms(phone, "מצב LIVE כובה. המערכת חזרה למצב סימולציה.")
+            return
+
     conn = get_conn()
     is_postgres = bool(os.environ.get("DATABASE_URL"))
     try:
-        # Cross-DB fix for daily count of OUTGOING messages only
         if is_postgres:
             count_query = "SELECT COUNT(*) FROM sms_log WHERE phone=? AND direction='out' AND sent_at::date = CURRENT_DATE"
         else:
             count_query = "SELECT COUNT(*) FROM sms_log WHERE phone=? AND direction='out' AND date(sent_at) = date('now')"
         
         daily_count = conn.execute(count_query, (phone,)).fetchone()[0]
-        
         if daily_count >= 30:
-            print(f"Blocked incoming SMS from {phone}: Daily limit of 30 OUTGOING SMS reached.")
-            # Send a one-time warning if possible (though we might be over the limit, sms_service handles the hard block)
             from sms_service import send_sms
             send_sms(phone, "הגעת למגבלת ההודעות היומית (30). המערכת לא תוכל לשלוח או לקבל הודעות נוספות היום.")
             conn.close()
             return
     except Exception as e:
-        print(f"Error checking daily limit in process_incoming_sms: {e}")
-        if is_postgres and hasattr(conn, 'conn'):
-            try:
-                conn.conn.rollback()
-            except:
-                pass
+        print(f"Error checking daily limit: {e}")
 
     try:
         receive_sms(phone, message)
     except Exception as e:
-        print(f"Error in receive_sms (likely printing issue): {e}")
+        print(f"Error in receive_sms: {e}")
     
     user = conn.execute("SELECT * FROM users WHERE phone=?", (phone,)).fetchone()
     conn.close()
     if not user:
         handle_unregistered_user(phone, message)
     else:
-        # We reuse the logic from simulation_system to keep it consistent
         from simulation_system import handle_registered_user
         handle_registered_user(phone, user, message)
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
-    print(f"Starting Web Simulation at http://0.0.0.0:{port}")
     app.run(host='0.0.0.0', port=port)

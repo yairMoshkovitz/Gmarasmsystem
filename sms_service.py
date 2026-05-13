@@ -2,7 +2,7 @@
 sms_service.py - SMS simulator (logs to DB + console instead of real SMS)
 In production: replace send_sms() with Twilio/Vonage/etc. API call.
 """
-from database import get_conn
+from database import get_conn, get_setting, set_setting
 from datetime import datetime
 import os
 import requests
@@ -12,15 +12,14 @@ from dotenv import load_dotenv
 load_dotenv()
 
 INBOX: list[dict] = []  # Simulated incoming messages queue
-LIVE_MODE = False
 
 def set_live_mode(enabled: bool):
-    global LIVE_MODE
-    LIVE_MODE = enabled
-    print(f"SMS Service: Live Mode set to {LIVE_MODE}")
+    set_setting("live_mode", "1" if enabled else "0")
+    print(f"SMS Service: Live Mode set to {enabled} (persisted)")
 
 def get_live_mode():
-    return LIVE_MODE
+    val = get_setting("live_mode", "0")
+    return val == "1"
 
 def send_real_sms(phone: str, message: str):
     """
@@ -107,7 +106,7 @@ def send_sms(phone: str, message: str, user_id: int = None):
                 (user_id, phone, "out", warning_msg),
             )
             conn.commit()
-            if LIVE_MODE:
+            if get_live_mode():
                 send_real_sms(phone, warning_msg)
             
             # Print the warning message to console too
@@ -132,7 +131,7 @@ def send_sms(phone: str, message: str, user_id: int = None):
     conn.commit()
     conn.close()
 
-    if LIVE_MODE:
+    if get_live_mode():
         send_real_sms(phone, message)
 
     # Console simulation
