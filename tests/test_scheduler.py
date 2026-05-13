@@ -36,11 +36,16 @@ def test_scheduler_same_day_protection():
     # Run once - sends first question
     run_hour(18)
     assert "ברכות" in get_last_sms(phone)
-    
+
+    # Clear state to allow second question (since we don't simulate response here)
+    from simulation_system import USER_STATES
+    if phone in USER_STATES:
+        del USER_STATES[phone]
+
     # Run twice - sends second question
     run_hour(18)
     assert "ברכות" in get_last_sms(phone)
-    
+
     # Verify it's in sent_questions
     conn = get_conn()
     count = conn.execute("SELECT COUNT(*) FROM sent_questions WHERE user_id=? AND subscription_id=?", (user_id, sub_id)).fetchone()[0]
