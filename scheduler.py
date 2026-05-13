@@ -45,13 +45,41 @@ def get_due_subscriptions(current_hour: int, today_str: str = None) -> list:
 
 
 def advance_subscription(sub_id: int, dafim_per_day: float):
-    """Update current_daf for the next day."""
+    """
+    Update current_daf for the next day.
+    If reached end_daf, deactivate the subscription and send a completion message.
+    """
     conn = get_conn()
-    conn.execute(
-        "UPDATE subscriptions SET current_daf = current_daf + ? WHERE id=?",
-        (dafim_per_day, sub_id),
-    )
-    conn.commit()
+    sub = conn.execute(
+        "SELECT s.*, t.name as tractate_name, u.phone, u.id as user_id FROM subscriptions s "
+        "JOIN tractates t ON s.tractate_id = t.id "
+        "JOIN users u ON s.user_id = u.id "
+        "WHERE s.id=?", (sub_id,)
+    ).fetchone()
+    
+    if not sub:
+        conn.close()
+        return
+
+    new_daf = sub["current_daf"] + dafim_per_day
+    
+    if new_daf > sub["end_daf"]:
+        # Subscription completed!
+        conn.execute("UPDATE subscriptions SET is_active=0, current_daf=? WHERE id=?", (sub["end_daf"], sub_id))
+        conn.commit()
+        
+        range_str = f"{float_to_daf_str(sub['start_daf'])} - {float_to_daf_str(sub['end_daf'])}"
+        msg = get_template("subscription_completed", 
+                           tractate_name=sub["tractate_name"],
+                           range=range_str)
+        send_sms(sub["phone"], msg, sub["user_id"])
+    else:
+        conn.execute(
+            "UPDATE subscriptions SET current_daf = ? WHERE id=?",
+            (new_daf, sub_id),
+        )
+        conn.commit()
+    
     conn.close()
 
 def format_sub_status(sub: dict) -> str:
