@@ -1,0 +1,833 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>אשף אבחון פרויקט</title>
+<link href="https://fonts.googleapis.com/css2?family=Frank+Ruhl+Libre:wght@300;400;500;700;900&family=Heebo:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --olive: #4a5240;
+  --olive-light: #6b7560;
+  --olive-pale: #e8ebe3;
+  --sand: #c4b89a;
+  --sand-light: #f0ead8;
+  --sand-pale: #faf7f0;
+  --ink: #1a1c18;
+  --ink-soft: #3a3d35;
+  --muted: #8a8d82;
+  --line: #d4d0c4;
+  --red-soft: #c0392b;
+  --green-soft: #2d6a4f;
+  --amber-soft: #b5621a;
+  --white: #ffffff;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: 'Heebo', sans-serif;
+  background: var(--sand-pale);
+  color: var(--ink);
+  min-height: 100vh;
+  direction: rtl;
+}
+
+.page-header {
+  background: var(--olive);
+  padding: 2rem 3rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.logo {
+  font-family: 'Frank Ruhl Libre', serif;
+  font-weight: 700;
+  font-size: 1.4rem;
+  color: var(--sand-light);
+  letter-spacing: -0.02em;
+}
+
+.logo span {
+  color: var(--sand);
+  font-weight: 300;
+}
+
+.header-tagline {
+  font-size: 0.8rem;
+  color: var(--olive-light);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.main {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 3rem 2rem 6rem;
+}
+
+.wizard-header {
+  margin-bottom: 3rem;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 2rem;
+}
+
+.wizard-title {
+  font-family: 'Frank Ruhl Libre', serif;
+  font-size: 2.2rem;
+  font-weight: 700;
+  color: var(--ink);
+  line-height: 1.2;
+  margin-bottom: 0.6rem;
+}
+
+.wizard-subtitle {
+  font-size: 1rem;
+  color: var(--muted);
+  font-weight: 300;
+  line-height: 1.6;
+}
+
+.progress-bar {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 2.5rem;
+  align-items: center;
+}
+
+.progress-step {
+  height: 3px;
+  flex: 1;
+  background: var(--line);
+  border-radius: 2px;
+  transition: background 0.4s ease;
+}
+
+.progress-step.done { background: var(--olive); }
+.progress-step.active { background: var(--sand); }
+
+.step-label {
+  font-size: 0.75rem;
+  color: var(--muted);
+  min-width: 60px;
+  text-align: left;
+}
+
+.step { display: none; animation: fadeIn 0.35s ease; }
+.step.active { display: block; }
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.step-number {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--muted);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin-bottom: 0.5rem;
+}
+
+.step-question {
+  font-family: 'Frank Ruhl Libre', serif;
+  font-size: 1.6rem;
+  font-weight: 500;
+  color: var(--ink);
+  margin-bottom: 0.5rem;
+  line-height: 1.3;
+}
+
+.step-hint {
+  font-size: 0.9rem;
+  color: var(--muted);
+  margin-bottom: 2rem;
+  line-height: 1.5;
+}
+
+.options-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 2rem;
+}
+
+.option-card {
+  background: var(--white);
+  border: 1.5px solid var(--line);
+  border-radius: 8px;
+  padding: 1.1rem 1.25rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+.option-card:hover {
+  border-color: var(--olive-light);
+  background: var(--olive-pale);
+}
+
+.option-card.selected {
+  border-color: var(--olive);
+  background: var(--olive-pale);
+}
+
+.option-card.selected::after {
+  content: '✓';
+  position: absolute;
+  top: 10px;
+  left: 12px;
+  font-size: 0.75rem;
+  color: var(--olive);
+  font-weight: 700;
+}
+
+.option-title {
+  font-weight: 500;
+  font-size: 0.95rem;
+  color: var(--ink);
+  margin-bottom: 3px;
+}
+
+.option-desc {
+  font-size: 0.8rem;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.options-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 2rem;
+}
+
+.option-row {
+  background: var(--white);
+  border: 1.5px solid var(--line);
+  border-radius: 8px;
+  padding: 0.9rem 1.25rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.option-row:hover { border-color: var(--olive-light); background: var(--olive-pale); }
+.option-row.selected { border-color: var(--olive); background: var(--olive-pale); }
+
+.option-row-label { font-weight: 400; font-size: 0.95rem; color: var(--ink); }
+
+.checkbox-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 2rem;
+}
+
+.checkbox-item {
+  background: var(--white);
+  border: 1.5px solid var(--line);
+  border-radius: 8px;
+  padding: 0.85rem 1.25rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.checkbox-item:hover { border-color: var(--olive-light); }
+.checkbox-item.checked { border-color: var(--olive); background: var(--olive-pale); }
+
+.check-box {
+  width: 18px; height: 18px;
+  border: 1.5px solid var(--line);
+  border-radius: 3px;
+  flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; color: var(--olive); font-weight: 700;
+  transition: all 0.2s;
+}
+
+.checkbox-item.checked .check-box {
+  background: var(--olive);
+  border-color: var(--olive);
+  color: white;
+}
+
+.checkbox-label { font-size: 0.9rem; color: var(--ink); }
+
+.nav-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-top: 1.5rem;
+}
+
+.btn-next {
+  background: var(--olive);
+  color: var(--sand-light);
+  border: none;
+  border-radius: 6px;
+  padding: 0.75rem 2rem;
+  font-family: 'Heebo', sans-serif;
+  font-size: 0.95rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-next:hover { background: var(--ink); }
+.btn-next:disabled { background: var(--line); color: var(--muted); cursor: default; }
+
+.btn-back {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.75rem 1.5rem;
+  font-family: 'Heebo', sans-serif;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-back:hover { color: var(--ink); border-color: var(--olive-light); }
+
+/* REPORT */
+.report { display: none; animation: fadeIn 0.5s ease; }
+.report.show { display: block; }
+
+.report-header {
+  background: var(--olive);
+  border-radius: 10px;
+  padding: 2rem 2.5rem;
+  margin-bottom: 2rem;
+  color: var(--sand-light);
+}
+
+.report-label {
+  font-size: 0.75rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--sand);
+  margin-bottom: 0.5rem;
+}
+
+.report-title {
+  font-family: 'Frank Ruhl Libre', serif;
+  font-size: 1.8rem;
+  font-weight: 700;
+  margin-bottom: 1.5rem;
+  line-height: 1.2;
+}
+
+.verdict-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 16px;
+}
+
+.verdict-card {
+  background: rgba(255,255,255,0.1);
+  border-radius: 6px;
+  padding: 1rem;
+}
+
+.verdict-val {
+  font-family: 'Frank Ruhl Libre', serif;
+  font-size: 1.6rem;
+  font-weight: 700;
+  margin-bottom: 2px;
+}
+
+.verdict-key {
+  font-size: 0.75rem;
+  color: var(--sand);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.verdict-val.green { color: #7dd9a3; }
+.verdict-val.amber { color: #f5c07a; }
+.verdict-val.red { color: #f08080; }
+
+.section {
+  background: var(--white);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 1.5rem 1.75rem;
+  margin-bottom: 1.25rem;
+}
+
+.section-title {
+  font-family: 'Frank Ruhl Libre', serif;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--ink);
+  margin-bottom: 1rem;
+  padding-bottom: 0.6rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.doc-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 0.5rem 0;
+  font-size: 0.9rem;
+  border-bottom: 1px solid var(--sand-pale);
+}
+
+.doc-item:last-child { border-bottom: none; }
+
+.doc-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-top: 5px;
+}
+
+.dot-green { background: var(--green-soft); }
+.dot-red { background: var(--red-soft); }
+.dot-amber { background: var(--amber-soft); }
+
+.doc-text { color: var(--ink); }
+.doc-note { font-size: 0.8rem; color: var(--muted); margin-top: 2px; }
+
+.blocker-item {
+  display: flex;
+  gap: 12px;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid var(--sand-pale);
+  font-size: 0.9rem;
+}
+
+.blocker-item:last-child { border-bottom: none; }
+
+.blocker-badge {
+  font-size: 0.7rem;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 3px;
+  flex-shrink: 0;
+  height: fit-content;
+  margin-top: 1px;
+}
+
+.badge-hard { background: #fde8e8; color: var(--red-soft); }
+.badge-soft { background: #fef3e2; color: var(--amber-soft); }
+
+.rec-box {
+  background: var(--sand-light);
+  border-radius: 8px;
+  padding: 1.25rem 1.5rem;
+  margin-bottom: 1.25rem;
+}
+
+.rec-title {
+  font-weight: 500;
+  font-size: 0.85rem;
+  color: var(--olive);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  margin-bottom: 0.5rem;
+}
+
+.rec-text {
+  font-family: 'Frank Ruhl Libre', serif;
+  font-size: 1.15rem;
+  color: var(--ink-soft);
+  line-height: 1.5;
+}
+
+.cta-section {
+  text-align: center;
+  padding: 2rem;
+  border: 1.5px dashed var(--sand);
+  border-radius: 10px;
+  background: var(--sand-pale);
+}
+
+.cta-text {
+  font-size: 0.95rem;
+  color: var(--muted);
+  margin-bottom: 1rem;
+  line-height: 1.6;
+}
+
+.btn-cta {
+  background: var(--olive);
+  color: var(--sand-light);
+  border: none;
+  border-radius: 6px;
+  padding: 0.85rem 2.5rem;
+  font-family: 'Heebo', sans-serif;
+  font-size: 1rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-cta:hover { background: var(--ink); }
+
+.restart-link {
+  display: inline-block;
+  margin-top: 1rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.restart-link:hover { color: var(--olive); }
+
+@media (max-width: 600px) {
+  .options-grid { grid-template-columns: 1fr; }
+  .verdict-row { grid-template-columns: 1fr; gap: 10px; }
+  .page-header { padding: 1.25rem 1.5rem; }
+  .main { padding: 2rem 1.25rem 5rem; }
+  .wizard-title { font-size: 1.7rem; }
+}
+</style>
+</head>
+<body>
+
+<header class="page-header">
+  <div class="logo">קובי אלירז יועץ <span>קרקע ובטחון</span></div>
+  <div class="header-tagline">אבחון ראשוני לפרויקט</div>
+</header>
+
+<main class="main">
+
+  <div class="wizard-header">
+    <h1 class="wizard-title">אשף אבחון פרויקט</h1>
+    <p class="wizard-subtitle">ענה על מספר שאלות ותקבל הערכה ראשונית של סיכויי ההצלחה, המסמכים הנדרשים והחסמים הצפויים.</p>
+  </div>
+
+  <!-- PROGRESS -->
+  <div class="progress-bar" id="progressBar">
+    <div class="progress-step active" id="ps1"></div>
+    <div class="progress-step" id="ps2"></div>
+    <div class="progress-step" id="ps3"></div>
+    <div class="progress-step" id="ps4"></div>
+    <span class="step-label" id="stepLabel">שלב 1 מתוך 4</span>
+  </div>
+
+  <!-- STEP 1: PROJECT TYPE -->
+  <div class="step active" id="step1">
+    <div class="step-number">שלב 1 מתוך 4</div>
+    <h2 class="step-question">מה סוג הפרויקט?</h2>
+    <p class="step-hint">בחר את הקטגוריה המתאימה ביותר לצורך שלך.</p>
+    <div class="options-grid">
+      <div class="option-card" data-val="land" onclick="selectSingle(this,'type')">
+        <div class="option-title">הסדרת קרקע</div>
+        <div class="option-desc">רישום, בירור בעלות, הכשרת מצב משפטי</div>
+      </div>
+      <div class="option-card" data-val="construction" onclick="selectSingle(this,'type')">
+        <div class="option-title">אישורי בנייה מול ביטחון</div>
+        <div class="option-desc">פרויקט בנייה הדורש תיאום עם גורמי ביטחון</div>
+      </div>
+      <div class="option-card" data-val="arab" onclick="selectSingle(this,'type')">
+        <div class="option-title">עסקה עם יזם ערבי</div>
+        <div class="option-desc">שיתוף פעולה, רכישה, שותפות עסקית</div>
+      </div>
+      <div class="option-card" data-val="infra" onclick="selectSingle(this,'type')">
+        <div class="option-title">תשתיות ותכנון</div>
+        <div class="option-desc">דרכים, תשתיות, תכנון אזורי</div>
+      </div>
+    </div>
+    <div class="nav-row">
+      <button class="btn-next" id="next1" onclick="goStep(2)" disabled>המשך</button>
+    </div>
+  </div>
+
+  <!-- STEP 2: ZONE -->
+  <div class="step" id="step2">
+    <div class="step-number">שלב 2 מתוך 4</div>
+    <h2 class="step-question">באיזה אזור ממוקם הפרויקט?</h2>
+    <p class="step-hint">הסיווג האזורי משפיע ישירות על הרשויות המעורבות וסוגי האישורים הנדרשים.</p>
+    <div class="options-list">
+      <div class="option-row" data-val="A" onclick="selectSingle(this,'zone')">
+        <div>
+          <div class="option-row-label">אזור A – שליטה פלסטינית מלאה</div>
+          <div style="font-size:0.8rem; color:var(--muted)">מינהל אזרחי ופלסטיני</div>
+        </div>
+      </div>
+      <div class="option-row" data-val="B" onclick="selectSingle(this,'zone')">
+        <div>
+          <div class="option-row-label">אזור B – שליטה ישראלית ביטחונית, אזרחי פלסטיני</div>
+          <div style="font-size:0.8rem; color:var(--muted)">תיאום נדרש עם שני הצדדים</div>
+        </div>
+      </div>
+      <div class="option-row" data-val="C" onclick="selectSingle(this,'zone')">
+        <div>
+          <div class="option-row-label">אזור C – שליטה ישראלית מלאה</div>
+          <div style="font-size:0.8rem; color:var(--muted)">מינהל אזרחי ישראלי בלבד</div>
+        </div>
+      </div>
+      <div class="option-row" data-val="unknown" onclick="selectSingle(this,'zone')">
+        <div class="option-row-label">לא ידוע / גבול אזורים</div>
+      </div>
+    </div>
+    <div class="nav-row">
+      <button class="btn-next" id="next2" onclick="goStep(3)" disabled>המשך</button>
+      <button class="btn-back" onclick="goStep(1)">חזור</button>
+    </div>
+  </div>
+
+  <!-- STEP 3: DOCUMENTS -->
+  <div class="step" id="step3">
+    <div class="step-number">שלב 3 מתוך 4</div>
+    <h2 class="step-question">אילו מסמכים כבר קיימים?</h2>
+    <p class="step-hint">סמן את המסמכים שיש ברשותך. אין צורך בכולם – זו הערכה ראשונית.</p>
+    <div class="checkbox-group" id="docList"></div>
+    <div class="nav-row">
+      <button class="btn-next" onclick="goStep(4)">המשך</button>
+      <button class="btn-back" onclick="goStep(2)">חזור</button>
+    </div>
+  </div>
+
+  <!-- STEP 4: PREVIOUS ATTEMPTS -->
+  <div class="step" id="step4">
+    <div class="step-number">שלב 4 מתוך 4</div>
+    <h2 class="step-question">האם נעשו ניסיונות קודמים?</h2>
+    <p class="step-hint">מידע זה עוזר להבין האם יש היסטוריה של דחיות שעלולה להשפיע על הסיכויים.</p>
+    <div class="options-list">
+      <div class="option-row" data-val="none" onclick="selectSingle(this,'history')">
+        <div class="option-row-label">לא – זהו הניסיון הראשון</div>
+      </div>
+      <div class="option-row" data-val="partial" onclick="selectSingle(this,'history')">
+        <div class="option-row-label">היו פניות ראשוניות ללא תשובה רשמית</div>
+      </div>
+      <div class="option-row" data-val="rejected" onclick="selectSingle(this,'history')">
+        <div class="option-row-label">היה דחייה רשמית בעבר</div>
+      </div>
+      <div class="option-row" data-val="partial_approval" onclick="selectSingle(this,'history')">
+        <div class="option-row-label">אישור חלקי – תלוי בהשלמת תנאים</div>
+      </div>
+    </div>
+    <div class="nav-row">
+      <button class="btn-next" id="next4" onclick="generateReport()" disabled>צור דוח אבחון</button>
+      <button class="btn-back" onclick="goStep(3)">חזור</button>
+    </div>
+  </div>
+
+  <!-- REPORT -->
+  <div class="report" id="report">
+    <div class="report-header">
+      <div class="report-label">דוח אבחון ראשוני</div>
+      <div class="report-title" id="reportTitle">–</div>
+      <div class="verdict-row">
+        <div class="verdict-card">
+          <div class="verdict-val" id="vSuccess">–</div>
+          <div class="verdict-key">סיכוי הצלחה</div>
+        </div>
+        <div class="verdict-card">
+          <div class="verdict-val" id="vTime">–</div>
+          <div class="verdict-key">אומדן זמן</div>
+        </div>
+        <div class="verdict-card">
+          <div class="verdict-val" id="vComplex">–</div>
+          <div class="verdict-key">מורכבות</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="rec-box">
+      <div class="rec-title">המלצה</div>
+      <div class="rec-text" id="recText">–</div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">מצב מסמכים</div>
+      <div id="docStatus"></div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">חסמים עיקריים</div>
+      <div id="blockers"></div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">הצעד הבא המומלץ</div>
+      <div id="nextStep" style="font-size:0.9rem; color:var(--ink-soft); line-height:1.7;"></div>
+    </div>
+
+    <div class="cta-section">
+      <div class="cta-text">הדוח מבוסס על מידע ראשוני בלבד. לניתוח מעמיק שכולל בדיקת שכבות GIS, אימות מסמכים ותיאום מול גורמי שטח –</div>
+      <button class="btn-cta">קבע שיחת ייעוץ</button>
+      <br>
+      <span class="restart-link" onclick="restart()">התחל אבחון חדש</span>
+    </div>
+  </div>
+
+</main>
+
+<script>
+const state = { type: null, zone: null, docs: [], history: null };
+
+const docSets = {
+  land: ['נסח טאבו / אישור רישום קרקע','מפת מדידה מוסמכת','תצלום אוויר עדכני','הסכם בעלות / ירושה','שרטוט גבולות מוסכם','אישור ממנהל מקרקעי ישראל'],
+  construction: ['היתר בנייה קודם','תוכנית אדריכלית מאושרת','אישור תיאום ביטחוני','אישור תכנוני (ועדה מחוזית)','דוח הנדסי','אישור חיבורי תשתית'],
+  arab: ['תעודת זהות / דרכון בעל העסקה','חוזה ראשוני / כוונות','אישור עורך דין מורשה','תצהיר בעלות','אישור מועצה מקומית'],
+  infra: ['תוכנית תב"ע בתוקף','אישור רשות מקומית','היתרי מעבר ביטחוניים','מפת תשתיות קיימות','חוות דעת סביבתית']
+};
+
+function selectSingle(el, key) {
+  const group = el.parentElement.querySelectorAll('.option-card, .option-row');
+  group.forEach(c => c.classList.remove('selected'));
+  el.classList.add('selected');
+  state[key] = el.dataset.val;
+  if (key === 'type') {
+    document.getElementById('next1').disabled = false;
+    buildDocList();
+  }
+  if (key === 'zone') document.getElementById('next2').disabled = false;
+  if (key === 'history') document.getElementById('next4').disabled = false;
+}
+
+function buildDocList() {
+  const docs = docSets[state.type] || docSets.land;
+  state.docs = [];
+  const el = document.getElementById('docList');
+  el.innerHTML = docs.map((d,i) => `
+    <div class="checkbox-item" onclick="toggleDoc(this,'${d}')">
+      <div class="check-box" id="cb${i}"></div>
+      <span class="checkbox-label">${d}</span>
+    </div>
+  `).join('');
+}
+
+function toggleDoc(el, val) {
+  el.classList.toggle('checked');
+  const box = el.querySelector('.check-box');
+  if (el.classList.contains('checked')) {
+    box.textContent = '✓';
+    state.docs.push(val);
+  } else {
+    box.textContent = '';
+    state.docs = state.docs.filter(d => d !== val);
+  }
+}
+
+function goStep(n) {
+  document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
+  document.getElementById('step'+n).classList.add('active');
+  updateProgress(n);
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function updateProgress(n) {
+  for (let i = 1; i <= 4; i++) {
+    const el = document.getElementById('ps'+i);
+    el.className = 'progress-step';
+    if (i < n) el.classList.add('done');
+    else if (i === n) el.classList.add('active');
+  }
+  document.getElementById('stepLabel').textContent = `שלב ${n} מתוך 4`;
+}
+
+function generateReport() {
+  const typeLabels = { land: 'הסדרת קרקע', construction: 'אישורי בנייה', arab: 'עסקה עם יזם ערבי', infra: 'תשתיות ותכנון' };
+  const allDocs = docSets[state.type] || [];
+  const missing = allDocs.filter(d => !state.docs.includes(d));
+  const coverage = allDocs.length > 0 ? state.docs.length / allDocs.length : 0;
+
+  let successScore = coverage;
+  if (state.zone === 'C') successScore += 0.15;
+  if (state.zone === 'A') successScore -= 0.2;
+  if (state.zone === 'unknown') successScore -= 0.1;
+  if (state.history === 'rejected') successScore -= 0.25;
+  if (state.history === 'partial_approval') successScore += 0.1;
+  successScore = Math.max(0.1, Math.min(0.95, successScore));
+
+  const successPct = Math.round(successScore * 100);
+  let successLabel, successColor, timeEst, complexity, rec, nextStepText;
+
+  if (successPct >= 70) {
+    successLabel = 'גבוה'; successColor = 'green';
+    rec = 'הפרויקט נראה בר-ביצוע. עם ליווי מקצועי נכון, קיימת אפשרות ממשית להתקדמות. כדאי להשלים את המסמכים החסרים ולהתחיל בתיאום מול הגורמים הרלוונטיים.';
+    nextStepText = 'השלמת המסמכים החסרים תוך 2-3 שבועות, לאחר מכן פנייה מסודרת לגורמי האישור. מומלץ ללוות את התהליך עם יועץ מנוסה כדי למנוע עיכובים מיותרים.';
+  } else if (successPct >= 45) {
+    successLabel = 'בינוני'; successColor = 'amber';
+    rec = 'קיים פוטנציאל, אך יש חסמים שדורשים טיפול לפני שמתקדמים. כדאי לבחון את הנושאים הפתוחים ולהעריך האם ניתן להסירם בעלות סבירה.';
+    nextStepText = 'לפני פנייה רשמית, מומלץ לערוך בדיקת רקע מעמיקה ולזהות את הדרך לפתרון החסמים. ייעוץ ראשוני יוכל לתת תמונה מדויקת יותר.';
+  } else {
+    successLabel = 'נמוך'; successColor = 'red';
+    rec = 'במצב הנוכחי, קיימות מגבלות משמעותיות שמקשות על התקדמות. לא בהכרח בלתי אפשרי, אבל נדרשת עבודת הכנה מקדימה ניכרת.';
+    nextStepText = 'לפני כל פנייה, נדרשת הערכת מצב מקיפה. ייתכן שיש דרכים חלופיות שטרם נבחנו. מומלץ להתייעץ לפני השקעת משאבים נוספים.';
+  }
+
+  if (state.zone === 'C') { timeEst = '3–6 חודשים'; complexity = 'בינונית'; }
+  else if (state.zone === 'B') { timeEst = '6–12 חודשים'; complexity = 'גבוהה'; }
+  else if (state.zone === 'A') { timeEst = '12–24 חודשים'; complexity = 'מורכבת מאוד'; }
+  else { timeEst = 'תלוי בדיוק'; complexity = 'לא ידוע'; }
+
+  if (state.history === 'rejected') { timeEst = 'מעל שנה'; complexity = 'גבוהה מאוד'; }
+
+  document.getElementById('reportTitle').textContent = `${typeLabels[state.type]} — אזור ${state.zone === 'unknown' ? 'לא מוגדר' : state.zone}`;
+  const vs = document.getElementById('vSuccess');
+  vs.textContent = successPct + '%';
+  vs.className = 'verdict-val ' + successColor;
+  document.getElementById('vTime').textContent = timeEst;
+  document.getElementById('vComplex').textContent = complexity;
+  document.getElementById('recText').textContent = rec;
+  document.getElementById('nextStep').textContent = nextStepText;
+
+  const docStatusEl = document.getElementById('docStatus');
+  let docHtml = '';
+  state.docs.forEach(d => {
+    docHtml += `<div class="doc-item"><div class="doc-dot dot-green"></div><div><div class="doc-text">${d}</div><div class="doc-note">קיים ✓</div></div></div>`;
+  });
+  missing.forEach(d => {
+    docHtml += `<div class="doc-item"><div class="doc-dot dot-red"></div><div><div class="doc-text">${d}</div><div class="doc-note">חסר – יש להשיג לפני הגשה</div></div></div>`;
+  });
+  docStatusEl.innerHTML = docHtml || '<p style="font-size:0.9rem; color:var(--muted)">לא נבחרו מסמכים</p>';
+
+  const blockerEl = document.getElementById('blockers');
+  let blockers = [];
+  if (state.zone === 'A') blockers.push({ type: 'hard', text: 'שליטה אזרחית פלסטינית מלאה – נדרשת עבודה מול שני מנגנונים במקביל' });
+  if (state.zone === 'B') blockers.push({ type: 'soft', text: 'תיאום ביטחוני ואזרחי כפול – עלול להאריך משמעותית את הציר הזמן' });
+  if (state.zone === 'unknown') blockers.push({ type: 'soft', text: 'אי-ודאות אזורית – יש לאשש את הסיווג לפני כל פנייה' });
+  if (missing.length > 3) blockers.push({ type: 'soft', text: `${missing.length} מסמכים חסרים – הגשה לא שלמה עלולה לגרום לדחייה אוטומטית` });
+  if (state.history === 'rejected') blockers.push({ type: 'hard', text: 'קיימת דחייה רשמית בעבר – נדרשת אסטרטגיה ספציפית לפני ניסיון חוזר' });
+  if (state.type === 'arab') blockers.push({ type: 'soft', text: 'נדרשת בדיקת רקע ואימות מסמכים של הצד הערבי' });
+
+  if (blockers.length === 0) blockers.push({ type: 'soft', text: 'לא זוהו חסמים מהותיים בשלב זה – יש להמשיך לבדיקה מעמיקה' });
+
+  blockerEl.innerHTML = blockers.map(b => `
+    <div class="blocker-item">
+      <span class="blocker-badge ${b.type === 'hard' ? 'badge-hard' : 'badge-soft'}">${b.type === 'hard' ? 'חסם קשיח' : 'סיכון'}</span>
+      <span>${b.text}</span>
+    </div>
+  `).join('');
+
+  document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
+  document.querySelector('.wizard-header').style.display = 'none';
+  document.getElementById('progressBar').style.display = 'none';
+  document.getElementById('report').classList.add('show');
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function restart() {
+  state.type = null; state.zone = null; state.docs = []; state.history = null;
+  document.querySelectorAll('.selected').forEach(e => e.classList.remove('selected'));
+  document.querySelectorAll('.checked').forEach(e => {
+    e.classList.remove('checked');
+    const b = e.querySelector('.check-box');
+    if (b) b.textContent = '';
+  });
+  ['next1','next2','next4'].forEach(id => document.getElementById(id).disabled = true);
+  document.getElementById('report').classList.remove('show');
+  document.querySelector('.wizard-header').style.display = '';
+  document.getElementById('progressBar').style.display = '';
+  goStep(1);
+}
+</script>
+</body>
+</html>
