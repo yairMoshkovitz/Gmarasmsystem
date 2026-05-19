@@ -147,6 +147,11 @@ def dashboard():
 def demo_dashboard():
     return render_template('demo_dashboard.html')
 
+@app.route('/project-wizard')
+@log_function_entry
+def project_wizard():
+    return render_template('project-wizard.html')
+
 @app.route('/analytics')
 @log_function_entry
 def analytics_page():
