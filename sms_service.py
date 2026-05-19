@@ -8,19 +8,25 @@ import os
 import requests
 import sys
 from dotenv import load_dotenv
+from logging_config import get_logger, log_function_entry
 
 load_dotenv()
 
+logger = get_logger(__name__)
+
 INBOX: list[dict] = []  # Simulated incoming messages queue
 
+@log_function_entry
 def set_live_mode(enabled: bool):
     set_setting("live_mode", "1" if enabled else "0")
     print(f"SMS Service: Live Mode set to {enabled} (persisted)")
 
+@log_function_entry
 def get_live_mode():
     val = get_setting("live_mode", "0")
     return val == "1"
 
+@log_function_entry
 def send_real_sms(phone: str, message: str):
     """
     Send a real SMS using Inforu API.
@@ -74,6 +80,7 @@ def send_real_sms(phone: str, message: str):
         print(f"❌ Error sending SMS via Inforu: {e}")
         return False
 
+@log_function_entry
 def reverse_hebrew_line(line: str) -> str:
     """
     Very basic RTL simulation by reversing Hebrew characters in a string.
@@ -81,10 +88,14 @@ def reverse_hebrew_line(line: str) -> str:
     """
     return line
 
+@log_function_entry
 def send_sms(phone: str, message: str, user_id: int = None):
     """
     Send an SMS (Simulated or Real based on LIVE_MODE).
     """
+    logger.info(f"📤 Sending SMS to {phone} (user_id={user_id})")
+    logger.debug(f"Message preview: {message[:100]}..." if len(message) > 100 else f"Message: {message}")
+    
     conn = get_conn()
     is_postgres = bool(os.environ.get("DATABASE_URL"))
     
@@ -163,11 +174,14 @@ def send_sms(phone: str, message: str, user_id: int = None):
         print(f"{'='*width}")
 
 
+@log_function_entry
 def receive_sms(phone: str, message: str):
     """
     Simulate receiving an SMS from a user.
     Logs it and puts it in the inbox queue.
     """
+    logger.info(f"📥 Received SMS from {phone}: {message}")
+    
     conn = get_conn()
 
     user = conn.execute(
@@ -195,6 +209,7 @@ def receive_sms(phone: str, message: str):
     print(f"\n📨 התקבלה הודעה מ-{phone}: {message}")
 
 
+@log_function_entry
 def get_sms_history(phone: str = None, limit: int = 20) -> list:
     """Retrieve SMS log."""
     conn = get_conn()

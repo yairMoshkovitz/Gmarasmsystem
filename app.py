@@ -10,12 +10,16 @@ from database import get_conn
 from sms_service import get_sms_history, receive_sms, set_live_mode, get_live_mode
 from simulation_system import handle_unregistered_user, handle_registered_user
 from scheduler import run_hour
+from logging_config import get_logger, log_function_entry
+
+logger = get_logger(__name__)
 
 app = Flask(__name__)
 
 def basic_auth_required(f):
     from functools import wraps
     @wraps(f)
+    @log_function_entry
     def decorated(*args, **kwargs):
         # Skip auth for webhooks
         path = request.path.lower()
@@ -47,6 +51,7 @@ def basic_auth_required(f):
     return decorated
 
 @app.before_request
+@log_function_entry
 def basic_auth_legacy():
     path = request.path.lower()
     if path.startswith('/webhook/') or path == '/webhook' or path == '/send':
@@ -84,7 +89,9 @@ except Exception as e:
     print(f"⚠️ Database initialization warning: {e}")
 
 # Background scheduler thread
+@log_function_entry
 def start_background_scheduler():
+    @log_function_entry
     def scheduler_loop():
         try:
             print("Background Scheduler Started.")
@@ -112,6 +119,7 @@ if os.environ.get('WERKZEUG_RUN_MAIN') == 'true' or not app.debug:
     start_background_scheduler()
 
 @app.route('/toggle_mode', methods=['GET', 'POST'])
+@log_function_entry
 def toggle_mode():
     if request.method == 'POST':
         data = request.json
@@ -122,6 +130,7 @@ def toggle_mode():
         return jsonify({"live_mode": get_live_mode()})
 
 @app.route('/')
+@log_function_entry
 def dashboard():
     conn = get_conn()
     stats = {
@@ -134,10 +143,12 @@ def dashboard():
     return render_template('dashboard.html', stats=stats)
 
 @app.route('/demo')
+@log_function_entry
 def demo_dashboard():
     return render_template('demo_dashboard.html')
 
 @app.route('/analytics')
+@log_function_entry
 def analytics_page():
     conn = get_conn()
     cities = conn.execute("SELECT DISTINCT city FROM users WHERE city IS NOT NULL ORDER BY city").fetchall()
@@ -146,6 +157,7 @@ def analytics_page():
     return render_template('analytics.html', cities=[c['city'] for c in cities], tractates=tractates)
 
 @app.route('/api/analytics/data')
+@log_function_entry
 def analytics_data():
     city = request.args.get('city')
     tractate_id = request.args.get('tractate_id')
@@ -207,6 +219,7 @@ def analytics_data():
     })
 
 @app.route('/api/stats/charts')
+@log_function_entry
 def chart_stats():
     conn = get_conn()
     is_postgres = bool(os.environ.get("DATABASE_URL"))
@@ -260,10 +273,12 @@ def chart_stats():
     })
 
 @app.route('/simulator')
+@log_function_entry
 def index():
     return render_template('index.html')
 
 @app.route('/edit-templates')
+@log_function_entry
 def edit_templates():
     response = render_template('edit_templates.html')
     return response, 200, {
@@ -274,16 +289,19 @@ def edit_templates():
 
 @app.route('/support')
 @basic_auth_required
+@log_function_entry
 def support_page():
     return render_template('support.html')
 
 @app.route('/scheduled-messages')
 @basic_auth_required
+@log_function_entry
 def scheduled_messages_page():
     return render_template('scheduled_messages.html')
 
 @app.route('/api/scheduled-messages/subscriptions')
 @basic_auth_required
+@log_function_entry
 def get_scheduled_subscriptions():
     filter_type = request.args.get('type', 'exact')
     hour = request.args.get('hour', type=int)
@@ -317,6 +335,7 @@ def get_scheduled_subscriptions():
 
 @app.route('/api/scheduled-messages/send', methods=['POST'])
 @basic_auth_required
+@log_function_entry
 def send_scheduled_broadcast():
     data = request.json
     sub_ids = data.get('subscription_ids', [])
@@ -363,6 +382,7 @@ def send_scheduled_broadcast():
 
 @app.route('/api/scheduled-messages/trigger-daily', methods=['POST'])
 @basic_auth_required
+@log_function_entry
 def trigger_daily_questions_manually():
     data = request.json
     sub_ids = data.get('subscription_ids', [])
@@ -396,6 +416,7 @@ def trigger_daily_questions_manually():
 
 @app.route('/api/support/assignees', methods=['GET', 'POST', 'DELETE'])
 @basic_auth_required
+@log_function_entry
 def manage_assignees():
     conn = get_conn()
     if request.method == 'POST':
@@ -421,6 +442,7 @@ def manage_assignees():
 
 @app.route('/api/support/requests')
 @basic_auth_required
+@log_function_entry
 def get_support_requests():
     category = request.args.get('category')
     status = request.args.get('status')
@@ -453,6 +475,7 @@ def get_support_requests():
 
 @app.route('/api/support/update', methods=['POST'])
 @basic_auth_required
+@log_function_entry
 def update_support_request():
     data = request.json
     req_id = data.get('id')
@@ -493,6 +516,7 @@ def update_support_request():
     return jsonify({"status": "success"})
 
 @app.route('/api/templates', methods=['GET', 'POST'])
+@log_function_entry
 def manage_templates():
     from registration import clear_template_cache
     template_path = os.path.join(os.path.dirname(__file__), 'sms_templates.json')
@@ -538,6 +562,7 @@ def manage_templates():
     return jsonify(templates)
 
 @app.route('/api/templates/diff')
+@log_function_entry
 def templates_diff():
     template_path = os.path.join(os.path.dirname(__file__), 'sms_templates.json')
     if not os.path.exists(template_path):
@@ -566,6 +591,7 @@ def templates_diff():
     return jsonify(diff)
 
 @app.route('/api/templates/sync', methods=['POST'])
+@log_function_entry
 def sync_templates():
     from registration import clear_template_cache
     data = request.json
@@ -592,6 +618,7 @@ def sync_templates():
     return jsonify({"status": "success"})
 
 @app.route('/api/templates/sync-to-json', methods=['POST'])
+@log_function_entry
 def sync_templates_to_json():
     data = request.json
     keys = data.get('keys', [])
@@ -616,6 +643,7 @@ def sync_templates_to_json():
         return jsonify({"error": str(e)}), 500
 
 @app.route('/history')
+@log_function_entry
 def history():
     phone = request.args.get('phone')
     if not phone:
@@ -623,6 +651,7 @@ def history():
     return jsonify(get_sms_history(phone))
 
 @app.route('/send', methods=['POST'])
+@log_function_entry
 def send():
     data = request.json
     phone = data.get('phone')
@@ -634,6 +663,7 @@ def send():
 
 @app.route('/webhook/inforu', methods=['GET', 'POST'], strict_slashes=False)
 @app.route('/WEBHOOK/INFORU', methods=['GET', 'POST'], strict_slashes=False)
+@log_function_entry
 def inforu_webhook():
     print(f"--- Incoming Webhook {request.method} ---")
     phone = None
@@ -671,6 +701,7 @@ def inforu_webhook():
         return "OK", 200
     return "No data found in request", 400
 
+@log_function_entry
 def process_incoming_sms(phone, message):
     admin_phone = "0584555723"
     if phone == admin_phone:

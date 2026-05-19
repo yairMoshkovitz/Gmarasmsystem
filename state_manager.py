@@ -5,8 +5,12 @@ Replaces the in-memory USER_STATES dictionary with DB-backed storage
 import json
 from database import get_conn
 from datetime import datetime
+from logging_config import get_logger, log_function_entry
+
+logger = get_logger(__name__)
 
 
+@log_function_entry
 def get_user_state(phone: str) -> dict:
     """
     Get the current state for a user by phone number.
@@ -32,6 +36,7 @@ def get_user_state(phone: str) -> dict:
     return result
 
 
+@log_function_entry
 def set_user_state(phone: str, state: str, **kwargs):
     """
     Set the state for a user. Additional keyword arguments are stored as JSON.
@@ -59,6 +64,7 @@ def set_user_state(phone: str, state: str, **kwargs):
     conn.close()
 
 
+@log_function_entry
 def clear_user_state(phone: str):
     """
     Remove the state for a user (e.g., when they complete a flow or reset).
@@ -69,6 +75,7 @@ def clear_user_state(phone: str):
     conn.close()
 
 
+@log_function_entry
 def update_user_state_data(phone: str, **kwargs):
     """
     Update only the data portion of a user's state without changing the state itself.

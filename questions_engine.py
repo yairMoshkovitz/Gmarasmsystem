@@ -5,7 +5,11 @@ import json
 import random
 from database import get_conn, daf_to_float, float_to_daf_str
 from registration import get_template
+from logging_config import get_logger, log_function_entry
 
+logger = get_logger(__name__)
+
+@log_function_entry
 def get_daf_range_for_question(q: dict) -> tuple[float, float]:
     """Extract start and end daf as floats from a question dict."""
     daf_info = q.get("daf")
@@ -25,6 +29,7 @@ def get_daf_range_for_question(q: dict) -> tuple[float, float]:
     return (0.0, 0.0)
 
 
+@log_function_entry
 def select_questions_for_range(
     questions: list, start_f: float, end_f: float, already_sent_ids: list,
     max_questions: int = 2
@@ -46,6 +51,7 @@ def select_questions_for_range(
     return eligible[:max_questions]
 
 
+@log_function_entry
 def get_already_sent_ids(user_id: int, subscription_id: int) -> list[str]:
     """Get list of question IDs already sent to this subscription."""
     conn = get_conn()
@@ -57,6 +63,7 @@ def get_already_sent_ids(user_id: int, subscription_id: int) -> list[str]:
     return [str(row["question_id"]) for row in rows]
 
 
+@log_function_entry
 def format_question_sms(q: dict, index: int, tractate_name: str, is_last: bool = False) -> str:
     """Format a question into an SMS message using template."""
     q_start, _ = get_daf_range_for_question(q)

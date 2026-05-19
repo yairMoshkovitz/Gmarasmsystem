@@ -12,18 +12,29 @@ from questions_engine import (
 )
 from registration import get_template
 from sms_service import get_live_mode
+from logging_config import get_logger, log_function_entry
 
+logger = get_logger(__name__)
+
+@log_function_entry
 def has_sent_today(user_id: int, sub_id: int) -> bool:
     """Check if questions were already sent to this user today."""
     conn = get_conn()
-    today_start = date.today().isoformat() + " 00:00:00"
-    row = conn.execute(
-        "SELECT id FROM sent_questions WHERE user_id=? AND subscription_id=? AND sent_at >= ? LIMIT 1",
-        (user_id, sub_id, today_start)
-    ).fetchone()
+    is_postgres = bool(os.environ.get("DATABASE_URL"))
+    if is_postgres:
+        row = conn.execute(
+            "SELECT id FROM sent_questions WHERE user_id=? AND subscription_id=? AND sent_at::date = CURRENT_DATE LIMIT 1",
+            (user_id, sub_id)
+        ).fetchone()
+    else:
+        row = conn.execute(
+            "SELECT id FROM sent_questions WHERE user_id=? AND subscription_id=? AND date(sent_at) = date('now') LIMIT 1",
+            (user_id, sub_id)
+        ).fetchone()
     conn.close()
     return row is not None
 
+@log_function_entry
 def get_due_subscriptions(current_hour: int, today_str: str = None) -> list:
     """Find active subscriptions that should get questions now."""
     conn = get_conn()
@@ -44,6 +55,7 @@ def get_due_subscriptions(current_hour: int, today_str: str = None) -> list:
     return [dict(r) for r in rows]
 
 
+@log_function_entry
 def advance_subscription(sub_id: int, dafim_per_day: float):
     """
     Update current_daf for the next day.
@@ -82,6 +94,7 @@ def advance_subscription(sub_id: int, dafim_per_day: float):
     
     conn.close()
 
+@log_function_entry
 def format_sub_status(sub: dict) -> str:
     """Format a standard status line for a subscription using sub_status_info template."""
     next_start = sub["current_daf"]
@@ -101,6 +114,7 @@ def format_sub_status(sub: dict) -> str:
                         next_study=study_range,
                         hour=sub["send_hour"])
 
+@log_function_entry
 def finish_subscription_day(sub: dict, override_queue: list = None):
     """Send finishing messages and advance daf."""
     import simulation_system
@@ -176,12 +190,18 @@ def finish_subscription_day(sub: dict, override_queue: list = None):
         status_lines = [format_sub_status(dict(s)) for s in all_user_subs]
         combined_status = "\n".join(status_lines)
         closure_msg = get_template("study_closure", sub_info=combined_status)
+        
+        # USE A SMALL DELAY TO ENSURE ORDER
+        import time
+        time.sleep(0.5)
+        
         send_sms(sub["phone"], closure_msg, sub["user_id"])
 
     # Clear state completely since day is finished
     if sub["phone"] in simulation_system.USER_STATES:
         del simulation_system.USER_STATES[sub["phone"]]
 
+@log_function_entry
 def send_next_question_or_finish(sub: dict, override_queue: list = None):
     """
     Check for the next question to send in the current range.
@@ -243,6 +263,8 @@ def send_next_question_or_finish(sub: dict, override_queue: list = None):
         conn.close()
         
         msg = format_question_sms(q, 1, sub["tractate_name"], is_last=is_last)
+        
+        # Ensure we don't have a race if finish_subscription_day is somehow called
         send_sms(sub["phone"], msg, sub["user_id"])
         
         # Set AWAITING_ANSWER state
@@ -264,6 +286,8 @@ def send_next_question_or_finish(sub: dict, override_queue: list = None):
         # Check if we should send the "no questions today" message instead of just the closure
         if count_row[0] == 0:
             # First attempt today and no questions found
+            print(f"DEBUG: No questions found for sub {sub['id']} on daf {sub['current_daf']}")
+            
             # Advance for tomorrow
             advance_subscription(sub["id"], sub["dafim_per_day"])
             
@@ -285,9 +309,11 @@ def send_next_question_or_finish(sub: dict, override_queue: list = None):
                 msg = get_template("no_questions_today", next_study=study_range, hour=updated_sub["send_hour"])
                 send_sms(sub["phone"], msg, sub["user_id"])
         else:
+            print(f"DEBUG: Already sent {count_row[0]} questions today. Finishing day for sub {sub['id']}")
             finish_subscription_day(sub, override_queue=override_queue)
         return False
 
+@log_function_entry
 def send_daily_questions(sub: dict):
     """Select and send the FIRST question for a single subscription."""
     # Safety check: don't send twice in the same calendar day (initial trigger)
@@ -316,6 +342,7 @@ def send_daily_questions(sub: dict):
     send_next_question_or_finish(sub)
 
 
+@log_function_entry
 def get_israel_time():
     """Get current time in Israel (UTC+3)."""
     # Assuming the server is in UTC. If it's not, we might need a more robust way.
@@ -324,25 +351,29 @@ def get_israel_time():
     from datetime import datetime, timedelta
     return datetime.utcnow() + timedelta(hours=3)
 
+@log_function_entry
 def has_pending_question(user_id: int, same_day_only: bool = False) -> bool:
     """
     Check if the user has any question that hasn't been answered yet.
     If same_day_only is True, only check for questions sent today.
     """
     conn = get_conn()
+    is_postgres = bool(os.environ.get("DATABASE_URL"))
     query = "SELECT id FROM sent_questions WHERE user_id=? AND responded_at IS NULL"
     params = [user_id]
     
     if same_day_only:
-        today_start = date.today().isoformat() + " 00:00:00"
-        query += " AND sent_at >= ?"
-        params.append(today_start)
+        if is_postgres:
+            query += " AND sent_at::date = CURRENT_DATE"
+        else:
+            query += " AND date(sent_at) = date('now')"
         
     query += " LIMIT 1"
     row = conn.execute(query, params).fetchone()
     conn.close()
     return row is not None
 
+@log_function_entry
 def run_hour(hour: int = None, force_date: date = None):
     """Main entry point for scheduled task with parallel SMS sending."""
     import time

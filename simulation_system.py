@@ -9,6 +9,9 @@ from scheduler import send_daily_questions, has_sent_today, send_next_question_o
 from database import get_conn, float_to_daf_str, daf_to_float
 from sms_service import get_sms_history, send_sms, receive_sms
 from state_manager import get_user_state, set_user_state, clear_user_state, update_user_state_data
+from logging_config import get_logger, log_function_entry
+
+logger = get_logger(__name__)
 
 # Backward compatibility: Keep USER_STATES as a proxy to DB
 class UserStatesProxy:
@@ -45,9 +48,11 @@ class UserStatesProxy:
 
 USER_STATES = UserStatesProxy()
 
+@log_function_entry
 def clear_screen():
     os.system('cls' if os.name == 'nt' else 'clear')
 
+@log_function_entry
 def handle_unregistered_user(phone, message):
     # Global "0" handler to reset state/cancel registration
     if message.strip() == "0":
@@ -81,6 +86,7 @@ def handle_unregistered_user(phone, message):
 
     send_sms(phone, get_template("unregistered_instructions"))
 
+@log_function_entry
 def get_subs_menu(subs):
     lines = []
     for i, s in enumerate(subs, 1):
@@ -88,6 +94,7 @@ def get_subs_menu(subs):
         lines.append(f"{i}. {s['tractate_name']} {range_str}")
     return "\n".join(lines)
 
+@log_function_entry
 def handle_registered_user(phone, user, message):
     # Global "0" handler to return to main menu
     clean_msg = message.strip().lower()
@@ -546,6 +553,7 @@ def handle_registered_user(phone, user, message):
     else:
         send_sms(phone, get_template(template_name="main_menu", name=user["name"]))
 
+@log_function_entry
 def main():
     clear_screen()
     print("=== Gemara SMS Simulation (Updated) ===")
