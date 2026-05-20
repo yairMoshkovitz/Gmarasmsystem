@@ -21,7 +21,8 @@ def test_multi_sub_manual_question_selection():
     assert USER_STATES[phone]['state'] == "AWAITING_SUB_SELECTION_FOR_QUESTION"
     
     simulate_inbound(phone, "1")
-    assert "ברכות" in get_last_sms(phone)
+    print(get_last_sms(phone))
+    assert "ברכות" in get_last_sms(phone) and "לקבלת שא" in get_last_sms(phone)
     assert USER_STATES[phone]['state'] == "AWAITING_ANSWER"
 
 def test_multi_sub_scheduler_queue():
