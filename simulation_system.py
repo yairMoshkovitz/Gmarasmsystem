@@ -28,8 +28,18 @@ class UserStatesProxy:
     
     def __setitem__(self, phone, value):
         if isinstance(value, dict) and "state" in value:
-            state_name = value.pop("state")
-            set_user_state(phone, state_name, **value)
+            # We must NOT modify the original dict with pop if we want to reuse it
+            data = value.copy()
+            state_name = data.pop("state")
+            
+            # Print for debug
+            print(f"DEBUG: Setting state for {phone} to {state_name} with data: {data}")
+            
+            set_user_state(phone, state_name, **data)
+            
+            # Verify immediately
+            verification = get_user_state(phone)
+            print(f"DEBUG: Verified state for {phone}: {verification}")
         else:
             raise ValueError("State must be a dict with 'state' key")
     
@@ -290,19 +300,25 @@ def handle_registered_user(phone, user, message):
                 return
 
         if state_info["state"] == "PROCESSING_QUESTION_QUEUE":
+            print(f"DEBUG: PROCESSING_QUESTION_QUEUE message: '{message}'")
+            # Re-read queue from DB to be 100% sure we have the latest
+            current_state = get_user_state(phone)
+            queue = current_state.get("queue", [])
+            print(f"DEBUG: Current queue from DB: {queue}")
+            
             if not message.isdigit():
                 send_sms(phone, "בחירה לא תקינה. אנא שלח את מספר המנוי בלבד.")
                 return
             
-            queue = state_info.get("queue", [])
             idx = int(message) - 1
             if idx < 0 or idx >= len(queue):
+                print(f"DEBUG: Invalid index {idx} for queue length {len(queue)}")
                 send_sms(phone, "בחירה לא תקינה. אנא שלח מספר מהרשימה.")
                 return
             
             selected_sub_id = queue.pop(idx)
-            # Update state with the modified queue
-            USER_STATES[phone]["queue"] = queue
+            # FORCE UPDATE into database by setting the whole dict
+            USER_STATES[phone] = {"state": "PROCESSING_QUESTION_QUEUE", "queue": queue}
             
             conn = get_conn()
             sub = conn.execute(

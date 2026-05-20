@@ -70,7 +70,8 @@ def send_real_sms(phone: str, message: str):
     try:
         response = requests.post(url, data={'InforuXML': xml_payload}, headers=headers)
         print(f"Inforu Response Status: {response.status_code}")
-        if "Status=\"1\"" in response.text:
+        # Inforu XML response contains <Status>1</Status> on success
+        if "<Status>1</Status>" in response.text or "Status=\"1\"" in response.text:
             print(f"✅ SMS sent successfully to {phone}")
             return True
         else:
