@@ -21,9 +21,9 @@ def basic_auth_required(f):
     @wraps(f)
     @log_function_entry
     def decorated(*args, **kwargs):
-        # Skip auth for webhooks and project-wizard
+        # Skip auth for webhooks, static files and project-wizard
         path = request.path.lower()
-        if path.startswith('/webhook/') or path == '/webhook' or path == '/send' or path == '/project-wizard':
+        if path.startswith('/webhook/') or path.startswith('/static/') or path == '/webhook' or path == '/send' or path == '/project-wizard':
             return f(*args, **kwargs)
 
         auth = request.headers.get('Authorization')
@@ -54,7 +54,7 @@ def basic_auth_required(f):
 @log_function_entry
 def basic_auth_legacy():
     path = request.path.lower()
-    if path.startswith('/webhook/') or path == '/webhook' or path == '/send' or path == '/project-wizard':
+    if path.startswith('/webhook/') or path.startswith('/static/') or path == '/webhook' or path == '/send' or path == '/project-wizard':
         return
 
     auth = request.headers.get('Authorization')
