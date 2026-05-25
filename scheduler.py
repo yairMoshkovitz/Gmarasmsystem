@@ -101,16 +101,21 @@ def format_sub_status(sub: dict) -> str:
     # If it was just advanced, current_daf is already tomorrow's
     # But usually we call this AFTER advance_subscription or when checking status
     
+    # Cap next_start at end_daf just in case
+    if next_start > sub["end_daf"]:
+        next_start = sub["end_daf"]
+
     next_end = next_start + sub["dafim_per_day"] - 0.5
     
     # Cap next_end at subscription's end_daf
     is_last_day = False
-    if next_end >= sub["end_daf"]:
+    # Use epsilon for comparison
+    if next_end >= sub["end_daf"] - 0.01:
         next_end = sub["end_daf"]
         is_last_day = True
         
     study_range = f"{float_to_daf_str(next_start)}"
-    if sub["dafim_per_day"] > 0.5 or next_start != next_end:
+    if next_start < next_end:
         study_range += f" עד {float_to_daf_str(next_end)}"
     
     sub_range = f"{float_to_daf_str(sub['start_daf'])} - {float_to_daf_str(sub['end_daf'])}"
@@ -307,6 +312,10 @@ def send_next_question_or_finish(sub: dict, override_queue: list = None):
     start_f = sub["current_daf"]
     end_f = start_f + sub["dafim_per_day"] - 0.01
     
+    # Cap end_f at subscription's end_daf
+    if end_f > sub["end_daf"]:
+        end_f = sub["end_daf"]
+
     daily_selection = select_questions_for_range(
         questions, start_f, end_f, already_sent, max_questions=1
     )
@@ -365,6 +374,20 @@ def send_next_question_or_finish(sub: dict, override_queue: list = None):
                 study_range += f" עד {float_to_daf_str(next_end)}"
             
             msg = get_template("no_questions_today", next_study=study_range, hour=sub["send_hour"])
+            
+            # Check if this is the end
+            if sub["current_daf"] >= sub["end_daf"] - 0.01:
+                # No more questions and we reached the end
+                range_str = f"{float_to_daf_str(sub['start_daf'])} - {float_to_daf_str(sub['end_daf'])}"
+                msg = get_template("subscription_completed", 
+                                  tractate_name=sub["tractate_name"],
+                                  range=range_str)
+                # Deactivate
+                conn = get_conn()
+                conn.execute("UPDATE subscriptions SET is_active=0 WHERE id=?", (sub["id"],))
+                conn.commit()
+                conn.close()
+
             send_sms(sub["phone"], msg, sub["user_id"])
         else:
             print(f"DEBUG: Already sent {count_row[0]} questions today. Finishing day for sub {sub['id']}")
