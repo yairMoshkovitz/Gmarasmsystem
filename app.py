@@ -4,6 +4,7 @@ import json
 import threading
 import time
 import base64
+import socket
 import xml.etree.ElementTree as ET
 from datetime import datetime
 from database import get_conn
@@ -89,8 +90,23 @@ except Exception as e:
     print(f"⚠️ Database initialization warning: {e}")
 
 # Background scheduler thread
+# Global variable to hold the scheduler lock socket
+scheduler_lock_socket = None
+
 @log_function_entry
 def start_background_scheduler():
+    global scheduler_lock_socket
+    
+    # Try to acquire the scheduler role using a socket lock
+    # Only one worker across all processes will succeed
+    try:
+        scheduler_lock_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        scheduler_lock_socket.bind(('127.0.0.1', 9999))
+        print("✅ This worker claimed the scheduler role!")
+    except socket.error:
+        print("⏭️  Scheduler already running in another worker. Skipping.")
+        return
+    
     @log_function_entry
     def scheduler_loop():
         try:
