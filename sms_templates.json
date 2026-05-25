@@ -30,7 +30,7 @@
     "choose_subscription_manual_question": "יש לך מספר מסלולי לימוד פעילים. באיזה מסלול תרצה להיבחן כעת?\n{menu}",
     "queue_start_menu": "הגיע הזמן ללימוד! יש לך שאלות ממתינות. מאיזו מסכת תרצה להתחיל?\n{menu}",
     "queue_next_menu": "כל הכבוד! נותרו לך שאלות. במה נמשיך?\n{menu}",
-    "queue_last_one": "מצוין! סיימת את {finished_tractate}. ממשיכים למסכת האחרונה - {next_tractate}:",
+    "queue_last_one": "מצוין! סיימת השאלות על מסכת את {finished_tractate}. ממשיכים למסכת האחרונה - {next_tractate}:",
     "study_closure": "תמשיך בהתמדה! \n{sub_info}",
     "error_parsing_registration": "שגיאה בפענוח הנתונים. אנא ודא שהכנסת את כל הפרטים בפורמט הנכון.",
     "tractate_not_found": "המסכת '{tractate}' לא נמצאה במערכת.",

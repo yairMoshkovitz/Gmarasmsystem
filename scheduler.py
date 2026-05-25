@@ -116,7 +116,7 @@ def format_sub_status(sub: dict) -> str:
 
 @log_function_entry
 def finish_subscription_day(sub: dict, override_queue: list = None):
-    """Send finishing messages and advance daf."""
+    """Send finishing messages. Note: Daf advancement happens at 23:55 daily."""
     import simulation_system
     
     def _get_local_subs_menu(subs):
@@ -126,10 +126,19 @@ def finish_subscription_day(sub: dict, override_queue: list = None):
             lines.append(f"{i}. {s['tractate_name']} {range_str}")
         return "\n".join(lines)
 
-    # 1. Advance to next day FIRST so we can show tomorrow's study correctly
-    advance_subscription(sub["id"], sub["dafim_per_day"])
+    # Note: Daf advancement removed from here - now happens at 23:55 via advance_all_subscriptions_daily()
     
     print(f"DEBUG: Finishing day for sub {sub['id']} ({sub['tractate_name']})")
+    
+    # Refresh sub data to get current state (daf will be advanced at 23:55)
+    conn = get_conn()
+    updated_sub = conn.execute(
+        "SELECT s.*, t.name as tractate_name FROM subscriptions s JOIN tractates t ON s.tractate_id = t.id WHERE s.id=?", (sub["id"],)
+    ).fetchone()
+    conn.close()
+    
+    if updated_sub:
+        sub = dict(updated_sub)
     
     # Check if there are other subscriptions in the queue for this session
     # We prefer the override_queue parameter passed directly to avoid circular import issues
@@ -288,26 +297,16 @@ def send_next_question_or_finish(sub: dict, override_queue: list = None):
             # First attempt today and no questions found
             print(f"DEBUG: No questions found for sub {sub['id']} on daf {sub['current_daf']}")
             
-            # Advance for tomorrow
-            advance_subscription(sub["id"], sub["dafim_per_day"])
+            # Note: Daf advancement removed - happens at 23:55 via advance_all_subscriptions_daily()
+            # Calculate what tomorrow's study will be (current_daf will be advanced at 23:55)
+            next_start = sub["current_daf"] + sub["dafim_per_day"]
+            next_end = next_start + sub["dafim_per_day"] - 0.5
+            study_range = f"{float_to_daf_str(next_start)}"
+            if sub["dafim_per_day"] > 0.5:
+                study_range += f" עד {float_to_daf_str(next_end)}"
             
-            # Refresh sub data to get updated current_daf
-            conn = get_conn()
-            updated_sub = conn.execute(
-                "SELECT s.*, t.name as tractate_name FROM subscriptions s JOIN tractates t ON s.tractate_id = t.id WHERE s.id=?", (sub["id"],)
-            ).fetchone()
-            conn.close()
-            
-            if updated_sub:
-                updated_sub = dict(updated_sub)
-                next_start = updated_sub["current_daf"]
-                next_end = next_start + updated_sub["dafim_per_day"] - 0.5
-                study_range = f"{float_to_daf_str(next_start)}"
-                if updated_sub["dafim_per_day"] > 0.5:
-                    study_range += f" עד {float_to_daf_str(next_end)}"
-                
-                msg = get_template("no_questions_today", next_study=study_range, hour=updated_sub["send_hour"])
-                send_sms(sub["phone"], msg, sub["user_id"])
+            msg = get_template("no_questions_today", next_study=study_range, hour=sub["send_hour"])
+            send_sms(sub["phone"], msg, sub["user_id"])
         else:
             print(f"DEBUG: Already sent {count_row[0]} questions today. Finishing day for sub {sub['id']}")
             finish_subscription_day(sub, override_queue=override_queue)
@@ -374,6 +373,52 @@ def has_pending_question(user_id: int, same_day_only: bool = False) -> bool:
     return row is not None
 
 @log_function_entry
+def advance_all_subscriptions_daily():
+    """
+    Run at 23:55 daily to advance all active subscriptions to the next day.
+    This ensures daf progression happens once per day, separate from question sending.
+    """
+    conn = get_conn()
+    active_subs = conn.execute(
+        """
+        SELECT s.id, s.dafim_per_day, s.current_daf, s.end_daf, t.name as tractate_name, u.phone, u.id as user_id
+        FROM subscriptions s
+        JOIN tractates t ON s.tractate_id = t.id
+        JOIN users u ON s.user_id = u.id
+        WHERE s.is_active = 1
+        """
+    ).fetchall()
+    
+    advanced_count = 0
+    completed_count = 0
+    
+    for sub in active_subs:
+        sub_dict = dict(sub)
+        new_daf = sub_dict["current_daf"] + sub_dict["dafim_per_day"]
+        
+        if new_daf > sub_dict["end_daf"]:
+            # Subscription completed!
+            conn.execute("UPDATE subscriptions SET is_active=0, current_daf=? WHERE id=?", 
+                        (sub_dict["end_daf"], sub_dict["id"]))
+            
+            range_str = f"{float_to_daf_str(sub_dict['current_daf'])} - {float_to_daf_str(sub_dict['end_daf'])}"
+            msg = get_template("subscription_completed", 
+                              tractate_name=sub_dict["tractate_name"],
+                              range=range_str)
+            send_sms(sub_dict["phone"], msg, sub_dict["user_id"])
+            completed_count += 1
+        else:
+            conn.execute("UPDATE subscriptions SET current_daf = ? WHERE id=?", 
+                        (new_daf, sub_dict["id"]))
+            advanced_count += 1
+    
+    conn.commit()
+    conn.close()
+    
+    print(f"✅ Daily advancement complete: {advanced_count} subscriptions advanced, {completed_count} completed")
+    return advanced_count, completed_count
+
+@log_function_entry
 def run_hour(hour: int = None, force_date: date = None):
     """Main entry point for scheduled task with parallel SMS sending."""
     import time
@@ -383,6 +428,13 @@ def run_hour(hour: int = None, force_date: date = None):
     today = force_date or date.today()
     if hour is None:
         hour = israel_now.hour
+    
+    # Special case: 23:55 - advance all subscriptions for tomorrow
+    if hour == 23 and israel_now.minute >= 55:
+        if get_live_mode():
+            print("🕐 Running daily subscription advancement at 23:55...")
+            advance_all_subscriptions_daily()
+        return
     
     if not get_live_mode():
         try:
