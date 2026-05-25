@@ -43,6 +43,11 @@ def select_questions_for_range(
             
         q_start, q_end = get_daf_range_for_question(q)
         
+        # Early exit: if current question starts after the requested range, 
+        # and we know the JSON is sorted, we can stop searching.
+        if q_start > end_f:
+            break
+            
         # Overlap check: [start_f, end_f] overlaps [q_start, q_end]
         if max(start_f, q_start) <= min(end_f, q_end):
             eligible.append(q)
