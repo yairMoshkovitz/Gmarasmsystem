@@ -102,14 +102,17 @@ def format_sub_status(sub: dict) -> str:
     today_start = sub["current_daf"]
     next_start = today_start + sub["dafim_per_day"]
     
-    # If today was the last day, next_start will be > end_daf
-    is_completed_today = (today_start >= sub["end_daf"] - 0.01)
-    
     sub_range = f"{float_to_daf_str(sub['start_daf'])} - {float_to_daf_str(sub['end_daf'])}"
 
-    if is_completed_today:
-        return f"{sub['tractate_name']} ({sub_range}): סיימת את הלימוד המוגדר! אשריך!"
+    # If today was the last day (current_daf >= end_daf), or if next_start would be beyond end_daf
+    if today_start >= sub["end_daf"] - 0.01 or next_start > sub["end_daf"] + 0.01:
+        return get_template("sub_status_finished",
+                          tractate_name=sub['tractate_name'],
+                          range=sub_range)
 
+    # Calculate tomorrow's end daf. 
+    # Example: if pace is 1.0, and start is 2.0, end is 2.5 (2.0 and 2.5).
+    # Correct formula: next_start + dafim_per_day - 0.5
     next_end = next_start + sub["dafim_per_day"] - 0.5
     
     # Cap next_end at subscription's end_daf

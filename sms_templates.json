@@ -14,6 +14,7 @@
     "already_sent_today": "כבר קיבלת שאלות היום! נמשיך מחר בשעה המתוכננת.",
     "already_sent_summary": "כבר קיבלת את כל השאלות המתוכננות להיום:\n{summary}",
     "sub_status_info": "{tractate_name} ({range}): הלימוד מחר יהיה {next_study}, והשאלות ישלחו בשעה {hour}:00.",
+    "sub_status_finished": "{tractate_name} ({range}): סיימת את הלימוד המוגדר! אשריך!",
     "tomorrow_study": "הלימוד המתוכנן למחר: {next_study}. בהצלחה!",
     "question_format": "מסכת {tractate}, דף {daf}:\n{question}\n\nיודע את התשובה? (לקבלת שאלה נוספת יש לענות)",
     "question_format_last": "מסכת {tractate}, דף {daf}:\n{question}\n\nיודע את התשובה?",
