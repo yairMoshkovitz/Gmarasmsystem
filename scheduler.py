@@ -232,6 +232,13 @@ def finish_subscription_day(sub: dict, override_queue: list = None):
     if all_user_subs:
         status_lines = [format_sub_status(dict(s)) for s in all_user_subs]
         combined_status = "\n".join(status_lines)
+        
+        # Check if the subscription that just finished is still active
+        is_still_active = any(s['id'] == sub['id'] for s in all_user_subs)
+        
+        # If it was the last day, we might have already deactivated it or it will be deactivated at 23:55
+        # But format_sub_status already adds the "tomorrow we finish" message.
+        
         closure_msg = get_template("study_closure", sub_info=combined_status)
         
         # USE A SMALL DELAY TO ENSURE ORDER

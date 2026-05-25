@@ -54,5 +54,5 @@ def test_multi_sub_scheduler_queue():
     # Should automatically prompt for the next one or move to it
     all_msgs = get_all_outgoing_sms(phone)
     # The system either sends "כל הכבוד" menu or "מצוין! סיימת... ממשיכים ל..."
-    assert any("סיימת את ברכות" in m for m in all_msgs)
+    assert any("סיימת את השאלות על מסכת ברכות" in m for m in all_msgs)
     assert any("שבת" in m for m in all_msgs)

@@ -218,7 +218,12 @@ def handle_registered_user(phone, user, message):
                                  # This handles the case where the user just writes the number
                                  try:
                                      # Try to see if it's a number/gimatriya
-                                     end_f = daf_to_float(end_str) + 0.5
+                                     val = daf_to_float(end_str)
+                                     # If it's a whole number (Amud A), add 0.5 to make it inclusive of the whole daf
+                                     if val == float(int(val)):
+                                         end_f = val + 0.5
+                                     else:
+                                         end_f = val
                                  except:
                                      end_f = daf_to_float(end_str)
                             else:
