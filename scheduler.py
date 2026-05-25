@@ -102,17 +102,29 @@ def format_sub_status(sub: dict) -> str:
     # But usually we call this AFTER advance_subscription or when checking status
     
     next_end = next_start + sub["dafim_per_day"] - 0.5
+    
+    # Cap next_end at subscription's end_daf
+    is_last_day = False
+    if next_end >= sub["end_daf"]:
+        next_end = sub["end_daf"]
+        is_last_day = True
+        
     study_range = f"{float_to_daf_str(next_start)}"
-    if sub["dafim_per_day"] > 0.5:
+    if sub["dafim_per_day"] > 0.5 or next_start != next_end:
         study_range += f" עד {float_to_daf_str(next_end)}"
     
     sub_range = f"{float_to_daf_str(sub['start_daf'])} - {float_to_daf_str(sub['end_daf'])}"
     
-    return get_template("sub_status_info", 
+    status = get_template("sub_status_info", 
                         tractate_name=sub['tractate_name'],
                         range=sub_range,
                         next_study=study_range,
                         hour=sub["send_hour"])
+                        
+    if is_last_day:
+        status += "\n(מחר נסיים את לימוד הטווח המוגדר!)"
+        
+    return status
 
 @log_function_entry
 def finish_subscription_day(sub: dict, override_queue: list = None):
@@ -421,7 +433,7 @@ def advance_all_subscriptions_daily():
     conn = get_conn()
     active_subs = conn.execute(
         """
-        SELECT s.id, s.dafim_per_day, s.current_daf, s.end_daf, t.name as tractate_name, u.phone, u.id as user_id
+        SELECT s.id, s.dafim_per_day, s.current_daf, s.end_daf, s.start_daf, t.name as tractate_name, u.phone, u.id as user_id
         FROM subscriptions s
         JOIN tractates t ON s.tractate_id = t.id
         JOIN users u ON s.user_id = u.id
@@ -432,28 +444,46 @@ def advance_all_subscriptions_daily():
     advanced_count = 0
     completed_count = 0
     
+    # Collect completion messages to send AFTER closing the connection
+    completion_messages = []
+    
     for sub in active_subs:
         sub_dict = dict(sub)
-        new_daf = sub_dict["current_daf"] + sub_dict["dafim_per_day"]
-        
-        if new_daf > sub_dict["end_daf"]:
-            # Subscription completed!
-            conn.execute("UPDATE subscriptions SET is_active=0, current_daf=? WHERE id=?", 
-                        (sub_dict["end_daf"], sub_dict["id"]))
+        # Use small epsilon to prevent float precision issues
+        if sub_dict["current_daf"] >= sub_dict["end_daf"] - 0.01:
+            # Already reached or passed end_daf yesterday
+            conn.execute("UPDATE subscriptions SET is_active=0 WHERE id=?", (sub_dict["id"],))
             
-            range_str = f"{float_to_daf_str(sub_dict['current_daf'])} - {float_to_daf_str(sub_dict['end_daf'])}"
+            range_str = f"{float_to_daf_str(sub_dict['start_daf'])} - {float_to_daf_str(sub_dict['end_daf'])}"
             msg = get_template("subscription_completed", 
                               tractate_name=sub_dict["tractate_name"],
                               range=range_str)
-            send_sms(sub_dict["phone"], msg, sub_dict["user_id"])
+            
+            completion_messages.append((sub_dict["phone"], msg, sub_dict["user_id"]))
             completed_count += 1
-        else:
-            conn.execute("UPDATE subscriptions SET current_daf = ? WHERE id=?", 
-                        (new_daf, sub_dict["id"]))
-            advanced_count += 1
+            continue
+
+        new_daf = sub_dict["current_daf"] + sub_dict["dafim_per_day"]
+        
+        # If the NEXT daf would be past the end, we still advance to it but mark that it's the last day
+        # Actually, if we're at 23:55, we're advancing to tomorrow.
+        # If current_daf is 14.5 and end_daf is 14.5, we should have completed it today.
+        
+        if new_daf > sub_dict["end_daf"] + 0.01:
+             # This means we would go past the limit tomorrow.
+             # We cap it at the end_daf so they at least finish exactly on it.
+             new_daf = sub_dict["end_daf"]
+        
+        conn.execute("UPDATE subscriptions SET current_daf = ? WHERE id=?", 
+                    (new_daf, sub_dict["id"]))
+        advanced_count += 1
     
     conn.commit()
     conn.close()
+    
+    # Send completion messages outside the DB connection to avoid locks
+    for phone, msg, uid in completion_messages:
+        send_sms(phone, msg, uid)
     
     print(f"✅ Daily advancement complete: {advanced_count} subscriptions advanced, {completed_count} completed")
     return advanced_count, completed_count

@@ -24,8 +24,8 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL REFERENCES users(id),
     tractate_id INTEGER NOT NULL REFERENCES tractates(id),
-    start_daf INTEGER NOT NULL DEFAULT 2,  -- starting daf (usually 2)
-    end_daf INTEGER NOT NULL,              -- ending daf
+    start_daf REAL NOT NULL DEFAULT 2,     -- starting daf (usually 2)
+    end_daf REAL NOT NULL,                 -- ending daf
     current_daf REAL NOT NULL DEFAULT 2.0, -- current position (2.0=2a, 2.5=2b)
     dafim_per_day REAL NOT NULL DEFAULT 1.0, -- 0.5, 1, 2 etc
     send_hour INTEGER NOT NULL DEFAULT 8,   -- hour to send (0-23)

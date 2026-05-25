@@ -209,13 +209,19 @@ def init_db():
                 conn.execute("ALTER TABLE subscriptions ADD COLUMN pause_until DATE")
             
             # Check for UNIQUE constraint in SQLite (Multi-tractate migration)
+            # AND ALSO check for INTEGER vs REAL for end_daf
+            cur.execute("PRAGMA table_info(subscriptions)")
+            table_info = cur.fetchall()
+            end_daf_type = next((col[2] for col in table_info if col[1] == 'end_daf'), 'INTEGER')
+            
             cur.execute("PRAGMA index_list(subscriptions)")
             indexes = cur.fetchall()
             has_unique = any(idx[1].startswith('sqlite_autoindex_subscriptions') or idx[2] == 1 for idx in indexes)
-            if has_unique:
-                print("Removing UNIQUE constraint from subscriptions (SQLite)...")
-                cur.execute("CREATE TABLE subscriptions_new (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL REFERENCES users(id), tractate_id INTEGER NOT NULL REFERENCES tractates(id), start_daf INTEGER NOT NULL DEFAULT 2, end_daf INTEGER NOT NULL, current_daf REAL NOT NULL DEFAULT 2.0, dafim_per_day REAL NOT NULL DEFAULT 1.0, send_hour INTEGER NOT NULL DEFAULT 8, is_active INTEGER DEFAULT 1, pause_until DATE, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
-                cur.execute("INSERT INTO subscriptions_new (id, user_id, tractate_id, start_daf, end_daf, current_daf, dafim_per_day, send_hour, is_active, pause_until, created_at) SELECT id, user_id, tractate_id, start_daf, end_daf, current_daf, dafim_per_day, send_hour, is_active, pause_until, created_at FROM subscriptions")
+            
+            if has_unique or end_daf_type.upper() == 'INTEGER':
+                print(f"Migrating subscriptions table (SQLite). Unique: {has_unique}, EndDafType: {end_daf_type}")
+                cur.execute("CREATE TABLE subscriptions_new (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL REFERENCES users(id), tractate_id INTEGER NOT NULL REFERENCES tractates(id), start_daf REAL NOT NULL DEFAULT 2, end_daf REAL NOT NULL, current_daf REAL NOT NULL DEFAULT 2.0, dafim_per_day REAL NOT NULL DEFAULT 1.0, send_hour INTEGER NOT NULL DEFAULT 8, is_active INTEGER DEFAULT 1, pause_until DATE, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
+                cur.execute("INSERT INTO subscriptions_new (id, user_id, tractate_id, start_daf, end_daf, current_daf, dafim_per_day, send_hour, is_active, pause_until, created_at) SELECT id, user_id, tractate_id, CAST(start_daf AS REAL), CAST(end_daf AS REAL), current_daf, dafim_per_day, send_hour, is_active, pause_until, created_at FROM subscriptions")
                 cur.execute("DROP TABLE subscriptions")
                 cur.execute("ALTER TABLE subscriptions_new RENAME TO subscriptions")
             

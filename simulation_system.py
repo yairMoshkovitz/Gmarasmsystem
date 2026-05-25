@@ -212,9 +212,15 @@ def handle_registered_user(phone, user, message):
                             end_f = daf_to_float(end_str)
                         else:
                             end_str = end_tokens[0]
-                            # if end is just daf, include amud b
+                            # if end is just daf (like "יד"), include amud b (14.5)
+                            # but if it's "יד ע"א" or "יד ע"ב" handled by daf_to_float
                             if 'ע"א' not in end_str and 'ע"ב' not in end_str:
-                                 end_f = daf_to_float(end_str) + 0.5
+                                 # This handles the case where the user just writes the number
+                                 try:
+                                     # Try to see if it's a number/gimatriya
+                                     end_f = daf_to_float(end_str) + 0.5
+                                 except:
+                                     end_f = daf_to_float(end_str)
                             else:
                                  end_f = daf_to_float(end_str)
                     else:
@@ -285,6 +291,10 @@ def handle_registered_user(phone, user, message):
                 end_f = state_info["end_daf"]
 
                 from registration import subscribe as original_subscribe
+                # Use round to prevent floating point issues like 14.5000000000001
+                start_f = round(start_f, 2)
+                end_f = round(end_f, 2)
+                
                 original_subscribe(user["id"], tractate_id, start_f, end_f, rate, hour)
                 
                 summary = f"מסכת {tractate_name} מדף {float_to_daf_str(start_f)} עד {float_to_daf_str(end_f)} בקצב של {rate} דפים ליום, בשעה {hour:02d}:00"
