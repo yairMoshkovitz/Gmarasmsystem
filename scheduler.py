@@ -121,14 +121,20 @@ def finish_subscription_day(sub: dict, override_queue: list = None):
     
     # Ensure we have phone and user_id in the sub dictionary
     if "phone" not in sub or "user_id" not in sub:
+        print(f"DEBUG: finish_subscription_day missing phone/user_id in sub. Hydrating for sub_id: {sub.get('id')}")
         conn = get_conn()
         user_info = conn.execute(
-            "SELECT phone, id as user_id FROM users WHERE id = (SELECT user_id FROM subscriptions WHERE id = ?)",
+            "SELECT u.phone, u.id as user_id FROM users u "
+            "JOIN subscriptions s ON s.user_id = u.id "
+            "WHERE s.id = ?",
             (sub["id"],)
         ).fetchone()
         conn.close()
         if user_info:
             sub = {**sub, "phone": user_info["phone"], "user_id": user_info["user_id"]}
+        else:
+            print(f"ERROR: Could not hydrate sub {sub.get('id')} - user not found.")
+            return
 
     def _get_local_subs_menu(subs):
         lines = []
@@ -149,7 +155,12 @@ def finish_subscription_day(sub: dict, override_queue: list = None):
     conn.close()
     
     if updated_sub:
+        # We must PRESERVE phone and user_id during refresh if they were hydrated
+        saved_phone = sub.get("phone")
+        saved_user_id = sub.get("user_id")
         sub = dict(updated_sub)
+        if saved_phone: sub["phone"] = saved_phone
+        if saved_user_id: sub["user_id"] = saved_user_id
     
     # Check if there are other subscriptions in the queue for this session
     # We prefer the override_queue parameter passed directly to avoid circular import issues
@@ -231,14 +242,20 @@ def send_next_question_or_finish(sub: dict, override_queue: list = None):
     
     # Ensure we have phone and user_id in the sub dictionary
     if "phone" not in sub or "user_id" not in sub:
+        print(f"DEBUG: send_next_question_or_finish missing phone/user_id in sub. Hydrating for sub_id: {sub.get('id')}")
         conn = get_conn()
         user_info = conn.execute(
-            "SELECT phone, id as user_id FROM users WHERE id = (SELECT user_id FROM subscriptions WHERE id = ?)",
+            "SELECT u.phone, u.id as user_id FROM users u "
+            "JOIN subscriptions s ON s.user_id = u.id "
+            "WHERE s.id = ?",
             (sub["id"],)
         ).fetchone()
         conn.close()
         if user_info:
             sub = {**sub, "phone": user_info["phone"], "user_id": user_info["user_id"]}
+        else:
+            print(f"ERROR: Could not hydrate sub {sub.get('id')} - user not found.")
+            return
 
     # 1. Check daily limit (e.g., 2 questions per day)
     conn = get_conn()
