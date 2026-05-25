@@ -97,36 +97,38 @@ def advance_subscription(sub_id: int, dafim_per_day: float):
 @log_function_entry
 def format_sub_status(sub: dict) -> str:
     """Format a standard status line for a subscription using sub_status_info template."""
-    next_start = sub["current_daf"]
-    # If it was just advanced, current_daf is already tomorrow's
-    # But usually we call this AFTER advance_subscription or when checking status
+    # current_daf in DB is what we studied TODAY.
+    # Tomorrow's study range (since advancement happens at 23:55)
+    today_start = sub["current_daf"]
+    next_start = today_start + sub["dafim_per_day"]
     
-    # Cap next_start at end_daf just in case
-    if next_start > sub["end_daf"]:
-        next_start = sub["end_daf"]
+    # If today was the last day, next_start will be > end_daf
+    is_completed_today = (today_start >= sub["end_daf"] - 0.01)
+    
+    sub_range = f"{float_to_daf_str(sub['start_daf'])} - {float_to_daf_str(sub['end_daf'])}"
+
+    if is_completed_today:
+        return f"{sub['tractate_name']} ({sub_range}): סיימת את הלימוד המוגדר! אשריך!"
 
     next_end = next_start + sub["dafim_per_day"] - 0.5
     
     # Cap next_end at subscription's end_daf
-    is_last_day = False
-    # Use epsilon for comparison
+    is_last_day_tomorrow = False
     if next_end >= sub["end_daf"] - 0.01:
         next_end = sub["end_daf"]
-        is_last_day = True
+        is_last_day_tomorrow = True
         
-    study_range = f"{float_to_daf_str(next_start)}"
+    tomorrow_study = f"{float_to_daf_str(next_start)}"
     if next_start < next_end:
-        study_range += f" עד {float_to_daf_str(next_end)}"
-    
-    sub_range = f"{float_to_daf_str(sub['start_daf'])} - {float_to_daf_str(sub['end_daf'])}"
+        tomorrow_study += f" עד {float_to_daf_str(next_end)}"
     
     status = get_template("sub_status_info", 
                         tractate_name=sub['tractate_name'],
                         range=sub_range,
-                        next_study=study_range,
+                        next_study=tomorrow_study,
                         hour=sub["send_hour"])
                         
-    if is_last_day:
+    if is_last_day_tomorrow:
         status += "\n(מחר נסיים את לימוד הטווח המוגדר!)"
         
     return status

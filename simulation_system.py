@@ -516,8 +516,10 @@ def handle_registered_user(phone, user, message):
             USER_STATES[phone] = {"state": "AWAITING_SUB_SELECTION", "action": "AWAITING_UPDATE_DAF"}
             send_sms(phone, get_template("choose_subscription_update_daf", menu=get_subs_menu(subs)))
         else:
-            USER_STATES[phone] = {"state": "AWAITING_UPDATE_DAF", "sub_id": subs[0]["id"] if subs else None}
-            send_sms(phone, get_template("ask_update_daf"))
+            sub = subs[0] if subs else None
+            USER_STATES[phone] = {"state": "AWAITING_UPDATE_DAF", "sub_id": sub["id"] if sub else None}
+            rate = sub["dafim_per_day"] if sub else 0
+            send_sms(phone, get_template("ask_update_daf", rate=rate))
 
     elif message == '3':
         subs = get_user_subscriptions(user['id'])
