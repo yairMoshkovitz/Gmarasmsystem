@@ -119,6 +119,17 @@ def finish_subscription_day(sub: dict, override_queue: list = None):
     """Send finishing messages. Note: Daf advancement happens at 23:55 daily."""
     import simulation_system
     
+    # Ensure we have phone and user_id in the sub dictionary
+    if "phone" not in sub or "user_id" not in sub:
+        conn = get_conn()
+        user_info = conn.execute(
+            "SELECT phone, id as user_id FROM users WHERE id = (SELECT user_id FROM subscriptions WHERE id = ?)",
+            (sub["id"],)
+        ).fetchone()
+        conn.close()
+        if user_info:
+            sub = {**sub, "phone": user_info["phone"], "user_id": user_info["user_id"]}
+
     def _get_local_subs_menu(subs):
         lines = []
         for i, s in enumerate(subs, 1):
@@ -217,6 +228,18 @@ def send_next_question_or_finish(sub: dict, override_queue: list = None):
     If no more questions (or reached daily limit), send the 'tomorrow study' message.
     """
     import simulation_system
+    
+    # Ensure we have phone and user_id in the sub dictionary
+    if "phone" not in sub or "user_id" not in sub:
+        conn = get_conn()
+        user_info = conn.execute(
+            "SELECT phone, id as user_id FROM users WHERE id = (SELECT user_id FROM subscriptions WHERE id = ?)",
+            (sub["id"],)
+        ).fetchone()
+        conn.close()
+        if user_info:
+            sub = {**sub, "phone": user_info["phone"], "user_id": user_info["user_id"]}
+
     # 1. Check daily limit (e.g., 2 questions per day)
     conn = get_conn()
     

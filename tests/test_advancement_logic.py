@@ -1,9 +1,8 @@
 
-from scheduler import advance_all_subscriptions_daily, get_israel_time, run_hour
+from scheduler import advance_all_subscriptions_daily, run_hour
 from database import get_conn
 from tests.helpers import create_user_with_subscription
 from sms_service import set_live_mode
-from datetime import datetime
 
 def test_daily_advancement_at_2355():
     """
@@ -30,9 +29,9 @@ def test_daily_advancement_at_2355():
     conn.close()
     
     # 2. Trigger daily advancement manually (simulating 23:55)
-    from database import get_conn
+    # First, cleanup other active subs to avoid DB locks from completing many subs at once in test env
     conn = get_conn()
-    conn.execute("DELETE FROM subscriptions WHERE is_active=1 AND user_id != ?", (user_id,))
+    conn.execute("UPDATE subscriptions SET is_active=0 WHERE is_active=1 AND user_id != ?", (user_id,))
     conn.commit()
     conn.close()
     

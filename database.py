@@ -65,8 +65,9 @@ class PostgresCursorWrapper:
 
 
 class PostgresConnWrapper:
-    def __init__(self, conn):
+    def __init__(self, conn, pool=None):
         self.conn = conn
+        self.pool = pool
 
     def execute(self, query, params=None):
         stripped_query = query.strip().upper()
@@ -102,7 +103,10 @@ class PostgresConnWrapper:
         self.conn.commit()
 
     def close(self):
-        self.conn.close()
+        if self.pool:
+            self.pool.putconn(self.conn)
+        else:
+            self.conn.close()
 
     def fetchone(self, cursor):
         if hasattr(cursor, 'fetchone'):
@@ -146,7 +150,7 @@ def get_conn():
         # Get connection from pool
         try:
             conn = _pg_pool.getconn()
-            return PostgresConnWrapper(conn)
+            return PostgresConnWrapper(conn, _pg_pool)
         except Exception as e:
             print(f"Error getting connection from pool: {e}")
             # Fallback to direct connection
