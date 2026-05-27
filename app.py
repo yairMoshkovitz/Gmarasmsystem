@@ -663,6 +663,45 @@ def sync_templates_to_json():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route('/diagnose')
+@log_function_entry
+def diagnose_route():
+    from database import get_conn
+    conn = get_conn()
+    output = []
+    try:
+        all_t = conn.execute("SELECT id, name FROM tractates").fetchall()
+        output.append(f"Total tractates: {len(all_t)}")
+        for row in all_t:
+            q_count = conn.execute("SELECT COUNT(*) as count FROM questions WHERE tractate_id = ?", (row['id'],)).fetchone()
+            output.append(f"ID {row['id']}: {row['name']} - Questions: {q_count['count']}")
+            
+            if q_count['count'] > 0:
+                sample = conn.execute("SELECT start_daf, end_daf, question_text FROM questions WHERE tractate_id = ? LIMIT 1", (row['id'],)).fetchone()
+                output.append(f"  Sample: {sample['start_daf']} - {sample['end_daf']} | {sample['question_text'][:30]}...")
+        
+        # Check specific case from logs: sub 51 on daf 12.0
+        # Wait, the logs show sub 51, tractate 59, daf 12.0
+        output.append("\n--- Debugging Sub 51 (Tractate 59, Daf 12.0) ---")
+        sub_info = conn.execute("SELECT * FROM subscriptions WHERE id = 51").fetchone()
+        if sub_info:
+            output.append(f"Sub 51 DB Check: Tractate={sub_info['tractate_id']}, Current Daf={sub_info['current_daf']}")
+            q_match = conn.execute("SELECT COUNT(*) as count FROM questions WHERE tractate_id = ? AND start_daf <= ? AND end_daf >= ?", 
+                                  (sub_info['tractate_id'], sub_info['current_daf'] + 0.99, sub_info['current_daf'])).fetchone()
+            output.append(f"Questions matching sub 51 criteria (start_daf <= {sub_info['current_daf'] + 0.99} AND end_daf >= {sub_info['current_daf']}): {q_match['count']}")
+            
+            # Show any questions for this tractate
+            raw_qs = conn.execute("SELECT start_daf, end_daf FROM questions WHERE tractate_id = ? LIMIT 10", (sub_info['tractate_id'],)).fetchall()
+            output.append(f"Raw daf ranges for tractate {sub_info['tractate_id']}: {[(r['start_daf'], r['end_daf']) for r in raw_qs]}")
+        else:
+            output.append("Sub 51 not found in DB.")
+
+    except Exception as e:
+        output.append(f"Error: {e}")
+    finally:
+        conn.close()
+    return "<pre>" + "\n".join(output) + "</pre>"
+
 @app.route('/history')
 @log_function_entry
 def history():
