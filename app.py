@@ -502,7 +502,7 @@ def update_support_request():
     req_id = data.get('id')
     status = data.get('status')
     assigned_to = data.get('assigned_to')
-    response_text = data.get('response_text')
+     response_text = data.get('response_text')
     
     if not req_id:
         return jsonify({"error": "Missing ID"}), 400
@@ -701,6 +701,23 @@ def diagnose_route():
     finally:
         conn.close()
     return "<pre>" + "\n".join(output) + "</pre>"
+
+@app.route('/run-migration')
+@log_function_entry
+def run_migration_route():
+    from migrate_questions import migrate
+    import io
+    from contextlib import redirect_stdout
+
+    f = io.StringIO()
+    with redirect_stdout(f):
+        try:
+            migrate()
+            status = "Migration finished successfully!"
+        except Exception as e:
+            status = f"Migration failed: {e}"
+    
+    return f"<h1>{status}</h1><pre>{f.getvalue()}</pre>"
 
 @app.route('/history')
 @log_function_entry
