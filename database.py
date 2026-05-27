@@ -237,17 +237,20 @@ def init_db():
         schema = schema.replace("REAL", "DOUBLE PRECISION")
         
         raw_conn = conn.conn
-        cur = raw_conn.cursor()
         # Drop sms_history if it exists and create sms_log (migration)
         try:
+            cur = raw_conn.cursor()
             cur.execute("SELECT 1 FROM information_schema.tables WHERE table_name='sms_history'")
             if cur.fetchone():
                 print("Migrating sms_history to sms_log...")
                 cur.execute("CREATE TABLE IF NOT EXISTS sms_log (id SERIAL PRIMARY KEY, user_id INTEGER, phone TEXT NOT NULL, direction TEXT NOT NULL, message TEXT NOT NULL, sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
                 cur.execute("INSERT INTO sms_log (user_id, phone, direction, message, sent_at) SELECT user_id, phone, direction, message, sent_at FROM sms_history")
                 cur.execute("DROP TABLE sms_history")
+                raw_conn.commit()
+            cur.close()
         except Exception as e:
             print(f"Postgres migration error: {e}")
+            raw_conn.rollback()
 
         for statement in schema.split(';'):
             clean_statement = []
@@ -258,11 +261,15 @@ def init_db():
             stmt = '\n'.join(clean_statement).strip()
             if stmt:
                 try:
+                    cur = raw_conn.cursor()
                     cur.execute(stmt)
+                    raw_conn.commit()
+                    cur.close()
                 except Exception as e:
-                    pass
-        raw_conn.commit()
-        cur.close()
+                    # Check if it's just "already exists" which is fine with IF NOT EXISTS but Postgres might still complain
+                    # or if the transaction is aborted
+                    raw_conn.rollback()
+                    # print(f"Postgres init notice: {e}")
     else:
         conn.executescript(schema)
         conn.commit()

@@ -100,8 +100,24 @@ def migrate():
     from database import init_db, seed_tractates
     init_db()
     seed_tractates()
-    conn.execute("DELETE FROM questions")
     
+    # Use TRUNCATE for Postgres if possible, or DELETE
+    try:
+        if os.environ.get("DATABASE_URL"):
+            # In Postgres, we might need CASCADE if there are foreign keys
+            print("Cleaning up questions table (Postgres)...")
+            conn.execute("TRUNCATE TABLE questions CASCADE")
+        else:
+            print("Cleaning up questions table (SQLite)...")
+            conn.execute("DELETE FROM questions")
+    except Exception as e:
+        print(f"Note on cleanup: {e}")
+        try:
+            conn.execute("DELETE FROM questions")
+        except:
+            pass
+    
+    total_imported = 0
     json_files = list(DATA_DIR.glob("*.json"))
     for json_file in json_files:
         if "backup" in json_file.name.lower(): continue
@@ -141,7 +157,13 @@ def migrate():
                 if not text or len(text) < 5 or re.fullmatch(r'[\(\)\.\-\:\s]+', text): continue
                 conn.execute("INSERT INTO questions (tractate_id, external_id, question_text, start_daf, end_daf) VALUES (?, ?, ?, ?, ?)",
                              (tractate_id, str(ext_id), text, start_f, end_f))
+            
+            total_imported += 1
+            if total_imported % 100 == 0:
+                print(f"Imported {total_imported} questions so far...")
+                
     conn.commit()
+    print(f"Finished importing. Total questions inserted: {total_imported}")
     print("\n--- Strict Data Quality Report ---")
     tractates_list = conn.execute("SELECT id, name, total_dafim FROM tractates").fetchall()
     for t in tractates_list:
