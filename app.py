@@ -502,7 +502,7 @@ def update_support_request():
     req_id = data.get('id')
     status = data.get('status')
     assigned_to = data.get('assigned_to')
-     response_text = data.get('response_text')
+    response_text = data.get('response_text')
     
     if not req_id:
         return jsonify({"error": "Missing ID"}), 400
