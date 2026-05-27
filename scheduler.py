@@ -2,7 +2,7 @@
 scheduler.py - Hourly task for sending daily questions
 """
 from datetime import datetime, date
-from database import get_conn, float_to_daf_str, load_questions
+from database import get_conn, float_to_daf_str
 from sms_service import send_sms
 import os
 from questions_engine import (
@@ -311,7 +311,6 @@ def send_next_question_or_finish(sub: dict, override_queue: list = None):
         finish_subscription_day(sub, override_queue=override_queue)
         return False
 
-    questions = load_questions(sub["tractate_id"])
     already_sent = get_already_sent_ids(sub["user_id"], sub["id"])
     
     start_f = sub["current_daf"]
@@ -322,7 +321,7 @@ def send_next_question_or_finish(sub: dict, override_queue: list = None):
         end_f = sub["end_daf"]
 
     daily_selection = select_questions_for_range(
-        questions, start_f, end_f, already_sent, max_questions=1
+        sub["tractate_id"], start_f, end_f, already_sent, max_questions=1
     )
 
     if daily_selection:

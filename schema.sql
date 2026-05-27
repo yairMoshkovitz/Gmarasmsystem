@@ -58,9 +58,22 @@ CREATE TABLE IF NOT EXISTS sms_log (
 
 CREATE TABLE IF NOT EXISTS sms_templates (
     key TEXT PRIMARY KEY,
-    content TEXT,
+    content TEXT NOT NULL,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS questions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tractate_id INTEGER NOT NULL REFERENCES tractates(id),
+    external_id TEXT, -- Original ID from JSON (e.g., 'א', 'שי')
+    question_text VARCHAR(500) NOT NULL,
+    start_daf REAL NOT NULL,
+    end_daf REAL NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT check_question_length CHECK (length(question_text) <= 500)
+);
+
+CREATE INDEX IF NOT EXISTS idx_questions_tractate_daf ON questions(tractate_id, start_daf, end_daf);
 
 CREATE TABLE IF NOT EXISTS pending_admin_messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

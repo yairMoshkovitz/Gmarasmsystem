@@ -328,6 +328,15 @@ def extract_daf_number(val):
     return 2
 
 
+def seed_questions():
+    """Trigger the smart migration from JSON to DB questions table."""
+    try:
+        from migrate_questions import migrate
+        print("🚀 Starting automated questions migration...")
+        migrate()
+    except Exception as e:
+        print(f"❌ Automated migration failed: {e}")
+
 def seed_sms_templates():
     """Seed SMS templates from JSON to DB if they don't exist."""
     template_path = Path(__file__).parent / "sms_templates.json"
@@ -476,3 +485,4 @@ if __name__ == "__main__":
     init_db()
     seed_tractates()
     seed_sms_templates()
+    seed_questions()
