@@ -115,9 +115,13 @@ def start_background_scheduler():
             pass
             
         last_hour = -1
+        last_advancement_date = None
         while True:
             from scheduler import get_israel_time
             now = get_israel_time()
+            today = now.date()
+            
+            # 1. Hourly check (for sending questions)
             if now.hour != last_hour:
                 try:
                     print(f"🕒 Scheduler checking for hour {now.hour}...")
@@ -125,6 +129,17 @@ def start_background_scheduler():
                     pass
                 run_hour(now.hour)
                 last_hour = now.hour
+            
+            # 2. Daily advancement check (at 23:55)
+            if now.hour == 23 and now.minute >= 55 and last_advancement_date != today:
+                try:
+                    print(f"🕒 Scheduler triggering daily advancement for {today}...")
+                except:
+                    pass
+                # run_hour with 23 and minute >= 55 will trigger advance_all_subscriptions_daily
+                run_hour(23)
+                last_advancement_date = today
+            
             time.sleep(60)
     
     thread = threading.Thread(target=scheduler_loop, daemon=True)
