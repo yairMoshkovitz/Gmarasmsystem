@@ -117,6 +117,19 @@ def handle_registered_user(phone, user, message):
         send_sms(phone, get_template(template_name="main_menu", name=user["name"]))
         return
 
+    # Check if user was in inactivity pause
+    if user['inactive_notified']:
+        print(f"DEBUG: User {phone} was inactive. Resetting inactivity flag.")
+        conn = get_conn()
+        conn.execute("UPDATE users SET inactive_notified = 0 WHERE id = ?", (user['id'],))
+        conn.commit()
+        conn.close()
+        # Even if they have a state, we reset and show menu
+        if phone in USER_STATES:
+            del USER_STATES[phone]
+        send_sms(phone, get_template("main_menu", name=user["name"]))
+        return
+
     state_info = USER_STATES.get(phone)
     print(f"DEBUG: Processing message '{clean_msg}' for phone {phone}, current state: {state_info['state'] if state_info else 'None'}")
 

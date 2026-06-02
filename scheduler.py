@@ -527,6 +527,57 @@ def advance_all_subscriptions_daily():
     return advanced_count, completed_count
 
 @log_function_entry
+def check_user_inactivity():
+    """
+    Find users who haven't responded for > 7 days and deactivate their subscriptions.
+    Run once daily.
+    """
+    conn = get_conn()
+    is_postgres = bool(os.environ.get("DATABASE_URL"))
+    
+    # Identify users who haven't responded for 7 days and haven't been notified yet
+    if is_postgres:
+        query = """
+            SELECT id, name, phone FROM users 
+            WHERE inactive_notified = 0 
+            AND last_response_at < CURRENT_TIMESTAMP - INTERVAL '7 days'
+            AND EXISTS (SELECT 1 FROM subscriptions WHERE user_id = users.id AND is_active = 1)
+        """
+    else:
+        query = """
+            SELECT id, name, phone FROM users 
+            WHERE inactive_notified = 0 
+            AND last_response_at < datetime('now', '-7 days')
+            AND EXISTS (SELECT 1 FROM subscriptions WHERE user_id = users.id AND is_active = 1)
+        """
+    
+    inactive_users = [dict(u) for u in conn.execute(query).fetchall()]
+    
+    if not inactive_users:
+        conn.close()
+        return 0
+
+    processed_count = 0
+    for user in inactive_users:
+        # 1. Deactivate all their active subscriptions to stop progress
+        conn.execute("UPDATE subscriptions SET is_active = 0 WHERE user_id = ?", (user['id'],))
+        # 2. Mark user as notified
+        conn.execute("UPDATE users SET inactive_notified = 1 WHERE id = ?", (user['id'],))
+        processed_count += 1
+        
+    conn.commit()
+    conn.close()
+    
+    # Send notifications OUTSIDE the main transaction to avoid "database is locked"
+    for user in inactive_users:
+        msg = get_template("inactivity_pause", name=user['name'])
+        send_sms(user['phone'], msg, user['id'])
+        
+    if processed_count > 0:
+        print(f"😴 Inactivity check: {processed_count} users deactivated due to 7+ days of silence.")
+    return processed_count
+
+@log_function_entry
 def run_hour(hour: int = None, force_date: date = None):
     """Main entry point for scheduled task with parallel SMS sending."""
     import time
@@ -540,8 +591,9 @@ def run_hour(hour: int = None, force_date: date = None):
     # Special case: 23:55 - advance all subscriptions for tomorrow
     if hour == 23 and israel_now.minute >= 55:
         if get_live_mode():
-            print("🕐 Running daily subscription advancement at 23:55...")
+            print("🕐 Running daily subscription advancement and inactivity check at 23:55...")
             advance_all_subscriptions_daily()
+            check_user_inactivity()
         return
     
     if not get_live_mode():
