@@ -4,10 +4,15 @@ logging_config.py - Centralized logging configuration for DEBUG mode
 import logging
 import functools
 import sys
+import os
 
-# Configure logging to DEBUG level by default
+# Get log level from environment or default to INFO
+log_level_str = os.environ.get("LOG_LEVEL", "INFO").upper()
+log_level = getattr(logging, log_level_str, logging.INFO)
+
+# Configure logging
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=log_level,
     format='%(asctime)s - %(name)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(funcName)s() - %(message)s',
     handlers=[
         logging.StreamHandler(sys.stdout)
@@ -16,7 +21,7 @@ logging.basicConfig(
 
 # Create a logger instance
 logger = logging.getLogger('QA-SMS')
-logger.setLevel(logging.DEBUG)
+logger.setLevel(log_level)
 
 
 def log_function_entry(func):
@@ -38,11 +43,14 @@ def log_function_entry(func):
         if len(signature) > 200:
             signature = signature[:200] + "..."
         
-        logger.debug(f"→ ENTERING {module_name}.{func_name}({signature})")
+        # Only log if level is DEBUG to save bandwidth/rate limits
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(f"→ ENTERING {module_name}.{func_name}({signature})")
         
         try:
             result = func(*args, **kwargs)
-            logger.debug(f"← EXITING {module_name}.{func_name}() - Success")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(f"← EXITING {module_name}.{func_name}() - Success")
             return result
         except Exception as e:
             logger.error(f"✗ EXCEPTION in {module_name}.{func_name}(): {e}", exc_info=True)

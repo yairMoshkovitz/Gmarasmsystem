@@ -18,18 +18,22 @@ logger = get_logger(__name__)
 
 @log_function_entry
 def has_sent_today(user_id: int, sub_id: int) -> bool:
-    """Check if questions were already sent to this user today."""
+    """Check if questions were already sent to this user today using Israel time."""
+    # Use get_israel_time().date() to ensure we are checking against the correct local day
+    israel_today = get_israel_time().date().isoformat()
+    
     conn = get_conn()
     is_postgres = bool(os.environ.get("DATABASE_URL"))
     if is_postgres:
+        # Cast to date for comparison
         row = conn.execute(
-            "SELECT id FROM sent_questions WHERE user_id=? AND subscription_id=? AND sent_at::date = CURRENT_DATE LIMIT 1",
-            (user_id, sub_id)
+            "SELECT id FROM sent_questions WHERE user_id=? AND subscription_id=? AND sent_at::date = ?::date LIMIT 1",
+            (user_id, sub_id, israel_today)
         ).fetchone()
     else:
         row = conn.execute(
-            "SELECT id FROM sent_questions WHERE user_id=? AND subscription_id=? AND date(sent_at) = date('now') LIMIT 1",
-            (user_id, sub_id)
+            "SELECT id FROM sent_questions WHERE user_id=? AND subscription_id=? AND date(sent_at) = date(?) LIMIT 1",
+            (user_id, sub_id, israel_today)
         ).fetchone()
     conn.close()
     return row is not None
@@ -581,10 +585,11 @@ def run_hour(hour: int = None, force_date: date = None):
         due = [dict(r) for r in rows]
         print(f"Friday 16:00: Catching all Friday evening messages. Count: {len(due)}")
     
-    # Special case: Saturday 21:00 - send all Shabbat messages
-    elif day_of_week == 5 and hour == 21:
+    # Special case: Saturday 21:00 (or first run after 21:00) - send all Shabbat messages
+    elif day_of_week == 5 and hour >= 21:
+        # We check if we have already run the "catch-up" today to avoid double processing if run twice after 21:00
+        # But has_sent_today already protects individual subscriptions.
         conn = get_conn()
-        today_str = today.isoformat()
         rows = conn.execute(
             """
             SELECT s.*, t.name as tractate_name, u.phone, u.name as user_name
@@ -594,15 +599,16 @@ def run_hour(hour: int = None, force_date: date = None):
             WHERE s.is_active=1
             AND (s.pause_until IS NULL OR s.pause_until <= ?)
             """,
-            (today,),
+            (today.isoformat(),),
         ).fetchall()
         conn.close()
         
         all_subs = [dict(r) for r in rows]
         for sub in all_subs:
-            if 0 <= sub['send_hour'] < 21:
+            # Catch all messages from 00:00 to current hour (including 21:00)
+            if 0 <= sub['send_hour'] <= hour:
                 due.append(sub)
-        print(f"Saturday 21:00: Catching all Shabbat messages. Count: {len(due)}")
+        print(f"Saturday {hour}:00: Catching all Shabbat messages up to now. Count: {len(due)}")
 
     else:
         # Normal hour processing
