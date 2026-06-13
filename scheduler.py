@@ -638,7 +638,7 @@ def run_hour(hour: int = None, force_date: date = None):
         print(f"Friday 16:00: Catching all Friday evening messages. Count: {len(due)}")
     
     # Special case: Saturday 21:00 (or first run after 21:00) - send all Shabbat messages
-    elif day_of_week == 5 and hour >= 21:
+    elif day_of_week == 5 and hour == 21:
         # We check if we have already run the "catch-up" today to avoid double processing if run twice after 21:00
         # But has_sent_today already protects individual subscriptions.
         conn = get_conn()
