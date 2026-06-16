@@ -199,21 +199,41 @@ def finish_subscription_day(sub: dict, override_queue: list = None):
     if queue:
         # Still more tractates in queue
         print(f"DEBUG: Found queue with {len(queue)} items left")
-        if len(queue) >= 2:
-            # Refresh subs data from DB to get latest tractate names/ranges
-            conn = get_conn()
+        
+        # FILTER QUEUE: Remove the current sub if it's in the queue, 
+        # and also remove any sub that already has sent questions today.
+        conn = get_conn()
+        filtered_queue = []
+        for s_id in queue:
+            if s_id == sub["id"]:
+                continue
+            if not has_sent_today(sub["user_id"], s_id):
+                filtered_queue.append(s_id)
+        
+        if not filtered_queue:
+            print(f"DEBUG: Queue was empty after filtering. Proceeding to closure.")
+            # We continue to closure below
+        elif len(filtered_queue) >= 2:
             due_subs = []
-            for s_id in queue:
+            for s_id in filtered_queue:
                 r = conn.execute(
                     "SELECT s.*, t.name as tractate_name FROM subscriptions s JOIN tractates t ON s.tractate_id = t.id WHERE s.id=?", (s_id,)
                 ).fetchone()
                 if r: due_subs.append(dict(r))
             conn.close()
             
+            # Update state with filtered queue
+            if sub["phone"] in simulation_system.USER_STATES:
+                simulation_system.USER_STATES[sub["phone"]] = {
+                    "state": "PROCESSING_QUESTION_QUEUE", 
+                    "queue": filtered_queue
+                }
+            
             msg = get_template("queue_next_menu", menu=_get_local_subs_menu(due_subs))
             send_sms(sub["phone"], msg, sub["user_id"])
-            # State remains PROCESSING_QUESTION_QUEUE
+            return
         else:
+            conn.close()
             # Only 1 left, send it directly
             last_sub_id = queue.pop(0)
             conn = get_conn()
@@ -227,8 +247,14 @@ def finish_subscription_day(sub: dict, override_queue: list = None):
                 range_str = f"{last_sub['tractate_name']} ({float_to_daf_str(last_sub['start_daf'])} - {float_to_daf_str(last_sub['end_daf'])})"
                 msg = get_template("queue_last_one", finished_tractate=sub["tractate_name"], next_tractate=range_str)
                 send_sms(sub["phone"], msg, sub["user_id"])
+                # Update state to the last sub before sending next question
+                if sub["phone"] in simulation_system.USER_STATES:
+                     simulation_system.USER_STATES[sub["phone"]] = {
+                        "state": "PROCESSING_QUESTION_QUEUE", 
+                        "queue": []
+                    }
                 # Recursively pass the empty queue
-                send_next_question_or_finish(last_sub, override_queue=queue)
+                send_next_question_or_finish(last_sub, override_queue=[])
         return
 
     # No queue or queue finished - Send "Study Closure" message

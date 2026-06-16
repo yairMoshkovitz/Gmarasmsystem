@@ -141,12 +141,14 @@ def handle_registered_user(phone, user, message):
             # We don't try to parse anything else until they answer or press 0.
             
             # Clean punctuation from the end to support "כן." or "לא," etc.
-            stripped_msg = clean_msg.strip(".,!?\"'")
+            stripped_msg = clean_msg.strip(".,!?\"' ")
             
             if stripped_msg in ["כן", "לא", "ידעתי", "לא ידעתי", "כ", "ל"]:
                 conn = get_conn()
+                # Find the LATEST question sent to this user that hasn't been responded to.
+                # We order by sent_at DESC to get the most recent one.
                 last_q = conn.execute(
-                    "SELECT id, subscription_id, question_text FROM sent_questions WHERE user_id=? AND responded_at IS NULL ORDER BY sent_at DESC LIMIT 1", 
+                    "SELECT id, subscription_id FROM sent_questions WHERE user_id=? AND responded_at IS NULL ORDER BY sent_at DESC LIMIT 1", 
                     (user["id"],)
                 ).fetchone()
                 
@@ -170,7 +172,9 @@ def handle_registered_user(phone, user, message):
                         if old_queue:
                             USER_STATES[phone] = {"state": "PROCESSING_QUESTION_QUEUE", "queue": old_queue}
                         else:
-                            del USER_STATES[phone] # Clear answer state
+                            # State will be set back to AWAITING_ANSWER inside send_next_question_or_finish
+                            # or cleared if it's the last question.
+                            del USER_STATES[phone] 
                             
                         from scheduler import send_next_question_or_finish
                         send_next_question_or_finish(dict(sub_row))
@@ -516,12 +520,15 @@ def handle_registered_user(phone, user, message):
             from scheduler import format_sub_status
             summary_lines = [format_sub_status(s) for s in all_subs]
             send_sms(phone, get_template("already_sent_summary", summary="\n".join(summary_lines)))
+            return # Added return
         elif len(needing_questions) == 1:
             from scheduler import send_next_question_or_finish
             send_next_question_or_finish(needing_questions[0])
+            return # Added return
         else:
             USER_STATES[phone] = {"state": "AWAITING_SUB_SELECTION_FOR_QUESTION"}
             send_sms(phone, get_template("choose_subscription_manual_question", menu=get_subs_menu(needing_questions)))
+            return # Added return
 
     elif message == '2':
         subs = get_user_subscriptions(user['id'])
