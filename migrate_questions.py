@@ -151,12 +151,12 @@ def migrate():
                     final_start = sub_daf if sub_daf and abs(sub_daf - start_f) <= STRICT_RANGE_LIMIT else start_f
                     final_end = sub_daf if sub_daf and abs(sub_daf - end_f) <= STRICT_RANGE_LIMIT else end_f
                     
-                    conn.execute("INSERT INTO questions (tractate_id, external_id, question_text, start_daf, end_daf) VALUES (?, ?, ?, ?, ?)",
-                                 (tractate_id, sub_id, sub_text, final_start, final_end))
+                    conn.execute("INSERT INTO questions (tractate_id, external_id, question_text, question_type, start_daf, end_daf) VALUES (?, ?, ?, ?, ?, ?)",
+                                 (tractate_id, sub_id, sub_text, q.get("question_type", ""), final_start, final_end))
             else:
                 if not text or len(text) < 5 or re.fullmatch(r'[\(\)\.\-\:\s]+', text): continue
-                conn.execute("INSERT INTO questions (tractate_id, external_id, question_text, start_daf, end_daf) VALUES (?, ?, ?, ?, ?)",
-                             (tractate_id, str(ext_id), text, start_f, end_f))
+                conn.execute("INSERT INTO questions (tractate_id, external_id, question_text, question_type, start_daf, end_daf) VALUES (?, ?, ?, ?, ?, ?)",
+                             (tractate_id, str(ext_id), text, q.get("question_type", ""), start_f, end_f))
             
             total_imported += 1
             if total_imported % 100 == 0:

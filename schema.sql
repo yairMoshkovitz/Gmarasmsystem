@@ -67,6 +67,7 @@ CREATE TABLE IF NOT EXISTS questions (
     tractate_id INTEGER NOT NULL REFERENCES tractates(id),
     external_id TEXT, -- Original ID from JSON (e.g., 'א', 'שי')
     question_text VARCHAR(500) NOT NULL,
+    question_type TEXT, -- 'רש"י' or 'תוס\'' or empty
     start_daf REAL NOT NULL,
     end_daf REAL NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

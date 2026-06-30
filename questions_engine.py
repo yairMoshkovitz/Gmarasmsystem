@@ -45,7 +45,7 @@ def select_questions_for_range(
     
     placeholders = ",".join(["?"] * len(already_sent_ids))
     query = f"""
-        SELECT id, external_id, question_text as text, start_daf, end_daf
+        SELECT id, external_id, question_text as text, question_type, start_daf, end_daf
         FROM questions
         WHERE tractate_id = ?
         AND start_daf <= ? AND end_daf >= ?

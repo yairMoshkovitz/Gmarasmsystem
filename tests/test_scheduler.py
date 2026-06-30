@@ -1,4 +1,4 @@
-from tests.helpers import create_user_with_subscription, get_last_sms
+from tests.helpers import create_user_with_subscription, get_last_sms, simulate_inbound
 from scheduler import run_hour, get_due_subscriptions
 from database import get_conn
 from sms_service import set_live_mode
@@ -33,33 +33,32 @@ def test_scheduler_same_day_protection():
     conn.close()
 
     # System daily limit for questions is 2.
-    # Run once - sends first question
+    # run_hour sends the first question only (per-subscription daily limit)
     run_hour(18)
     assert "ברכות" in get_last_sms(phone)
 
-    # Clear state to allow second question (since we don't simulate response here)
-    from simulation_system import USER_STATES
-    if phone in USER_STATES:
-        del USER_STATES[phone]
-
-    # Run twice - sends second question
-    run_hour(18)
-    assert "ברכות" in get_last_sms(phone)
-
-    # Verify it's in sent_questions
+    # Verify it's in sent_questions (1 question sent so far)
     conn = get_conn()
     count = conn.execute("SELECT COUNT(*) FROM sent_questions WHERE user_id=? AND subscription_id=?", (user_id, sub_id)).fetchone()[0]
+    assert count == 1
+
+    # Second question is triggered by user ANSWERING the first (not by another run_hour)
+    simulate_inbound(phone, "כן")
+    assert "ברכות" in get_last_sms(phone)
+
+    count = conn.execute("SELECT COUNT(*) FROM sent_questions WHERE user_id=? AND subscription_id=?", (user_id, sub_id)).fetchone()[0]
     assert count == 2
-    
-    # Clear SMS log to verify protection - we want to see if a THIRD message is generated
+    conn.close()
+
+    # Clear SMS log to verify protection against a third question
+    conn = get_conn()
     conn.execute("DELETE FROM sms_log WHERE phone=?", (phone,))
     conn.commit()
     conn.close()
-    
-    # Third run same hour/day - should be blocked by daily question limit (2)
-    # However, the system's logic sends the "study closure" message when the queue is finished or daily limit is reached.
-    run_hour(18)
-    
+
+    # Answering second question should give closure (daily limit reached)
+    simulate_inbound(phone, "כן")
+
     last = get_last_sms(phone)
     assert last is not None
     # We should NOT get a question, we should get the closure message
@@ -121,7 +120,11 @@ def test_advance_subscription_logic():
     # Answer 2 questions (daily limit)
     simulate_inbound(phone, "כן")
     simulate_inbound(phone, "כן")
-    
+
+    # Daf advancement happens at 23:55 nightly, not immediately on answer
+    from scheduler import advance_all_subscriptions_daily
+    advance_all_subscriptions_daily()
+
     # Verify current_daf advanced
     conn = get_conn()
     updated_sub = conn.execute("SELECT current_daf FROM subscriptions WHERE id=?", (sub_id,)).fetchone()

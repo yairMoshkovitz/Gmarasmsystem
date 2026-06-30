@@ -118,7 +118,7 @@ def handle_registered_user(phone, user, message):
         return
 
     # Check if user was in inactivity pause
-    if user['inactive_notified']:
+    if 'inactive_notified' in user.keys() and user['inactive_notified']:
         print(f"DEBUG: User {phone} was inactive. Resetting inactivity flag.")
         conn = get_conn()
         conn.execute("UPDATE users SET inactive_notified = 0 WHERE id = ?", (user['id'],))
@@ -215,10 +215,8 @@ def handle_registered_user(phone, user, message):
                     if 'total_dafim' in tractate_obj:
                          end_f = float(tractate_obj['total_dafim'])
 
-                    # Parsing daf range — whole dafim only, no amud (ע"א/ע"ב)
                     def _parse_daf_token(token: str) -> float:
-                        """Take first word of token as daf number, ignore amud."""
-                        return daf_to_float(token.split()[0])
+                        return daf_to_float(token)
 
                     if " עד " in norm_rem:
                         parts_range = norm_rem.split(" עד ")

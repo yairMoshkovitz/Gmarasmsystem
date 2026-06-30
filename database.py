@@ -182,7 +182,12 @@ def init_db():
             if not cur.fetchone():
                 print("Migrating subscriptions table (Postgres)...")
                 cur.execute("ALTER TABLE subscriptions ADD COLUMN pause_until DATE")
-            
+
+            cur.execute("SELECT column_name FROM information_schema.columns WHERE table_name='questions' AND column_name='question_type'")
+            if not cur.fetchone():
+                print("Migrating questions table (Postgres) - adding question_type...")
+                cur.execute("ALTER TABLE questions ADD COLUMN question_type TEXT")
+
             # Remove UNIQUE constraint in Postgres
             try:
                 cur.execute("ALTER TABLE subscriptions DROP CONSTRAINT IF EXISTS subscriptions_user_id_tractate_id_key")
@@ -207,6 +212,12 @@ def init_db():
             if 'pause_until' not in cols:
                 print("Migrating subscriptions table (SQLite)...")
                 conn.execute("ALTER TABLE subscriptions ADD COLUMN pause_until DATE")
+
+            cur.execute("PRAGMA table_info(questions)")
+            cols = [row[1] for row in cur.fetchall()]
+            if 'question_type' not in cols:
+                print("Migrating questions table (SQLite) - adding question_type...")
+                conn.execute("ALTER TABLE questions ADD COLUMN question_type TEXT")
             
             # Check for UNIQUE constraint in SQLite (Multi-tractate migration)
             # AND ALSO check for INTEGER vs REAL for end_daf

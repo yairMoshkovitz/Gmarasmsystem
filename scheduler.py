@@ -101,24 +101,20 @@ def advance_subscription(sub_id: int, dafim_per_day: float):
 @log_function_entry
 def format_sub_status(sub: dict) -> str:
     """Format a standard status line for a subscription using sub_status_info template."""
-    # current_daf in DB is what we studied TODAY.
-    # Tomorrow's study range (since advancement happens at 23:55)
-    today_start = sub["current_daf"]
-    next_start = today_start + sub["dafim_per_day"]
-    
+    # current_daf = the next daf to study (what we'll study tomorrow/today)
+    next_start = sub["current_daf"]
+
     sub_range = f"{float_to_daf_str(sub['start_daf'])} - {float_to_daf_str(sub['end_daf'])}"
 
-    # If today was the last day (current_daf >= end_daf), or if next_start would be beyond end_daf
-    if today_start >= sub["end_daf"] - 0.01 or next_start > sub["end_daf"] + 0.01:
+    # If already past end_daf, subscription is finished
+    if next_start > sub["end_daf"] + 0.01:
         return get_template("sub_status_finished",
                           tractate_name=sub['tractate_name'],
                           range=sub_range)
 
-    # Calculate tomorrow's end daf. 
-    # Example: if pace is 1.0, and start is 2.0, end is 2.5 (2.0 and 2.5).
-    # Correct formula: next_start + dafim_per_day - 0.5
+    # Calculate study range end: next_start + rate - 0.5 (covers both amudim of a daf)
     next_end = next_start + sub["dafim_per_day"] - 0.5
-    
+
     # Cap next_end at subscription's end_daf
     is_last_day_tomorrow = False
     if next_end >= sub["end_daf"] - 0.01:
@@ -300,20 +296,22 @@ def send_next_question_or_finish(sub: dict, override_queue: list = None):
     import simulation_system
     
     # Ensure we have phone and user_id in the sub dictionary
-    if "phone" not in sub or "user_id" not in sub:
+    if "phone" not in sub or "user_id" not in sub or "end_daf" not in sub:
         print(f"DEBUG: send_next_question_or_finish missing phone/user_id in sub. Hydrating for sub_id: {sub.get('id')}")
         conn = get_conn()
-        user_info = conn.execute(
-            "SELECT u.phone, u.id as user_id FROM users u "
-            "JOIN subscriptions s ON s.user_id = u.id "
+        full_sub = conn.execute(
+            "SELECT s.*, t.name as tractate_name, t.id as tractate_id, u.phone, u.id as user_id "
+            "FROM subscriptions s "
+            "JOIN tractates t ON t.id = s.tractate_id "
+            "JOIN users u ON u.id = s.user_id "
             "WHERE s.id = ?",
             (sub["id"],)
         ).fetchone()
         conn.close()
-        if user_info:
-            sub = {**sub, "phone": user_info["phone"], "user_id": user_info["user_id"]}
+        if full_sub:
+            sub = dict(full_sub)
         else:
-            print(f"ERROR: Could not hydrate sub {sub.get('id')} - user not found.")
+            print(f"ERROR: Could not hydrate sub {sub.get('id')} - not found.")
             return
 
     # 1. Check daily limit (e.g., 2 questions per day)
