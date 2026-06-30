@@ -215,61 +215,24 @@ def handle_registered_user(phone, user, message):
                     if 'total_dafim' in tractate_obj:
                          end_f = float(tractate_obj['total_dafim'])
 
-                    # Advanced Parsing for Range only
+                    # Parsing daf range — whole dafim only, no amud (ע"א/ע"ב)
+                    def _parse_daf_token(token: str) -> float:
+                        """Take first word of token as daf number, ignore amud."""
+                        return daf_to_float(token.split()[0])
+
                     if " עד " in norm_rem:
                         parts_range = norm_rem.split(" עד ")
-                        start_str = parts_range[0].strip()
-                        start_f = daf_to_float(start_str)
-                        
-                        end_part_full = parts_range[1].strip()
-                        end_tokens = end_part_full.split()
-                        
-                        if len(end_tokens) >= 2 and end_tokens[1] in ('ע"א', 'ע"ב'):
-                            end_str = f"{end_tokens[0]} {end_tokens[1]}"
-                            end_f = daf_to_float(end_str)
-                        else:
-                            end_str = end_tokens[0]
-                            # if end is just daf (like "יד"), include amud b (14.5)
-                            # but if it's "יד ע"א" or "יד ע"ב" handled by daf_to_float
-                            if 'ע"א' not in end_str and 'ע"ב' not in end_str:
-                                 # This handles the case where the user just writes the number
-                                 try:
-                                     # Try to see if it's a number/gimatriya
-                                     val = daf_to_float(end_str)
-                                     # If it's a whole number (Amud A), add 0.5 to make it inclusive of the whole daf
-                                     if val == float(int(val)):
-                                         end_f = val + 0.5
-                                     else:
-                                         end_f = val
-                                 except:
-                                     end_f = daf_to_float(end_str)
-                            else:
-                                 end_f = daf_to_float(end_str)
+                        start_f = _parse_daf_token(parts_range[0].strip())
+                        end_f = _parse_daf_token(parts_range[1].strip())
                     else:
-                        params = norm_rem.split()
-                        if params:
-                            if len(params) >= 2 and params[1] in ('ע"א', 'ע"ב'):
-                                start_str = f"{params[0]} {params[1]}"
-                                idx = 2
-                            else:
-                                start_str = params[0]
-                                idx = 1
-                            start_f = daf_to_float(start_str)
-                            
-                            if idx < len(params) and params[idx] == 'עד':
-                                idx += 1
-                                if idx < len(params):
-                                    if idx + 1 < len(params) and params[idx+1] in ('ע"א', 'ע"ב'):
-                                        end_str = f"{params[idx]} {params[idx+1]}"
-                                        idx += 2
-                                        end_f = daf_to_float(end_str)
-                                    else:
-                                        end_str = params[idx]
-                                        idx += 1
-                                        if 'ע"א' not in end_str and 'ע"ב' not in end_str:
-                                             end_f = daf_to_float(end_str) + 0.5
-                                        else:
-                                             end_f = daf_to_float(end_str)
+                        tokens = norm_rem.split()
+                        if tokens:
+                            start_f = _parse_daf_token(tokens[0])
+                            if len(tokens) >= 2 and tokens[1] != 'עד':
+                                # second token is end daf (e.g. "ב י")
+                                end_f = _parse_daf_token(tokens[1])
+                            elif len(tokens) >= 3 and tokens[1] == 'עד':
+                                end_f = _parse_daf_token(tokens[2])
                     
                     USER_STATES[phone] = {
                         "state": "AWAITING_REG_STEP_3",
@@ -282,7 +245,7 @@ def handle_registered_user(phone, user, message):
                     return
                 except Exception as e:
                     print(f"DEBUG Step 2 Error: {e}")
-                    send_sms(phone, "שגיאה בפרטי המסכת. אנא שלח בפורמט: מסכת דף ועמוד התחלה עד דף ועמוד סיום\nלדוגמה: ברכות ב ע\"א עד י ע\"ב")
+                    send_sms(phone, "שגיאה בפרטי המסכת. אנא שלח בפורמט: מסכת דף התחלה עד דף סיום\nלדוגמה: ברכות ב עד י")
                     return
             else:
                 send_sms(phone, get_template("tractate_not_found", tractate=message.split()[0] if message.split() else message))
@@ -295,12 +258,17 @@ def handle_registered_user(phone, user, message):
                 clean_msg = message.replace(',', ' ').strip()
                 parts = clean_msg.split()
                 if len(parts) < 2:
-                     send_sms(phone, "אנא שלח הספק ושעה מופרדים בפסיק או רווח.\nלדוגמא: 1.5, 18")
+                     send_sms(phone, "אנא שלח הספק ושעה מופרדים בפסיק או רווח.\nלדוגמא: 1, 18")
                      return
                 
                 rate = float(parts[0])
                 hour = int(parts[1])
-                
+
+                if rate < 1 or rate != int(rate):
+                    send_sms(phone, "הספק לא תקין. אנא הכנס מספר שלם של דפים ליום (לדוגמה: 1 או 2).")
+                    return
+                rate = float(int(rate))
+
                 if not (0 <= hour <= 23):
                     if hour == 24: hour = 0
                     else:
