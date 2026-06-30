@@ -24,8 +24,8 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL REFERENCES users(id),
     tractate_id INTEGER NOT NULL REFERENCES tractates(id),
-    start_daf INTEGER NOT NULL DEFAULT 2,  -- starting daf (usually 2)
-    end_daf INTEGER NOT NULL,              -- ending daf
+    start_daf REAL NOT NULL DEFAULT 2,     -- starting daf (usually 2)
+    end_daf REAL NOT NULL,                 -- ending daf
     current_daf REAL NOT NULL DEFAULT 2.0, -- current position (2.0=2a, 2.5=2b)
     dafim_per_day REAL NOT NULL DEFAULT 1.0, -- 0.5, 1, 2 etc
     send_hour INTEGER NOT NULL DEFAULT 8,   -- hour to send (0-23)
@@ -58,9 +58,22 @@ CREATE TABLE IF NOT EXISTS sms_log (
 
 CREATE TABLE IF NOT EXISTS sms_templates (
     key TEXT PRIMARY KEY,
-    content TEXT,
+    content TEXT NOT NULL,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS questions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tractate_id INTEGER NOT NULL REFERENCES tractates(id),
+    external_id TEXT, -- Original ID from JSON (e.g., 'א', 'שי')
+    question_text VARCHAR(500) NOT NULL,
+    start_daf REAL NOT NULL,
+    end_daf REAL NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT check_question_length CHECK (length(question_text) <= 500)
+);
+
+CREATE INDEX IF NOT EXISTS idx_questions_tractate_daf ON questions(tractate_id, start_daf, end_daf);
 
 CREATE TABLE IF NOT EXISTS pending_admin_messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -87,4 +100,17 @@ CREATE TABLE IF NOT EXISTS assignees (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL UNIQUE,
     is_active INTEGER DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS user_states (
+    phone TEXT PRIMARY KEY,
+    state TEXT NOT NULL,
+    data TEXT,                               -- JSON data for additional state info
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

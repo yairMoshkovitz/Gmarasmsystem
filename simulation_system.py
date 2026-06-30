@@ -8,13 +8,61 @@ from registration import register_user, subscribe, get_all_tractates, get_user_s
 from scheduler import send_daily_questions, has_sent_today, send_next_question_or_finish
 from database import get_conn, float_to_daf_str, daf_to_float
 from sms_service import get_sms_history, send_sms, receive_sms
+from state_manager import get_user_state, set_user_state, clear_user_state, update_user_state_data
+from logging_config import get_logger, log_function_entry
 
-# Global state to track multi-step conversations
-USER_STATES = {}
+logger = get_logger(__name__)
 
+# Backward compatibility: Keep USER_STATES as a proxy to DB
+class UserStatesProxy:
+    """Proxy dict that reads/writes to database instead of memory"""
+    def get(self, phone, default=None):
+        state = get_user_state(phone)
+        return state if state else default
+    
+    def __getitem__(self, phone):
+        state = get_user_state(phone)
+        if state is None:
+            raise KeyError(phone)
+        return state
+    
+    def __setitem__(self, phone, value):
+        if isinstance(value, dict) and "state" in value:
+            # We must NOT modify the original dict with pop if we want to reuse it
+            data = value.copy()
+            state_name = data.pop("state")
+            
+            # Print for debug
+            print(f"DEBUG: Setting state for {phone} to {state_name} with data: {data}")
+            
+            set_user_state(phone, state_name, **data)
+            
+            # Verify immediately
+            verification = get_user_state(phone)
+            print(f"DEBUG: Verified state for {phone}: {verification}")
+        else:
+            raise ValueError("State must be a dict with 'state' key")
+    
+    def __delitem__(self, phone):
+        clear_user_state(phone)
+    
+    def __contains__(self, phone):
+        return get_user_state(phone) is not None
+    
+    def clear(self):
+        """Clear all states (for testing)"""
+        conn = get_conn()
+        conn.execute("DELETE FROM user_states")
+        conn.commit()
+        conn.close()
+
+USER_STATES = UserStatesProxy()
+
+@log_function_entry
 def clear_screen():
     os.system('cls' if os.name == 'nt' else 'clear')
 
+@log_function_entry
 def handle_unregistered_user(phone, message):
     # Global "0" handler to reset state/cancel registration
     if message.strip() == "0":
@@ -48,6 +96,7 @@ def handle_unregistered_user(phone, message):
 
     send_sms(phone, get_template("unregistered_instructions"))
 
+@log_function_entry
 def get_subs_menu(subs):
     lines = []
     for i, s in enumerate(subs, 1):
@@ -55,6 +104,7 @@ def get_subs_menu(subs):
         lines.append(f"{i}. {s['tractate_name']} {range_str}")
     return "\n".join(lines)
 
+@log_function_entry
 def handle_registered_user(phone, user, message):
     # Global "0" handler to return to main menu
     clean_msg = message.strip().lower()
@@ -65,6 +115,19 @@ def handle_registered_user(phone, user, message):
         else:
             print(f"DEBUG: No state to reset for {phone}")
         send_sms(phone, get_template(template_name="main_menu", name=user["name"]))
+        return
+
+    # Check if user was in inactivity pause
+    if user['inactive_notified']:
+        print(f"DEBUG: User {phone} was inactive. Resetting inactivity flag.")
+        conn = get_conn()
+        conn.execute("UPDATE users SET inactive_notified = 0 WHERE id = ?", (user['id'],))
+        conn.commit()
+        conn.close()
+        # Even if they have a state, we reset and show menu
+        if phone in USER_STATES:
+            del USER_STATES[phone]
+        send_sms(phone, get_template("main_menu", name=user["name"]))
         return
 
     state_info = USER_STATES.get(phone)
@@ -78,12 +141,14 @@ def handle_registered_user(phone, user, message):
             # We don't try to parse anything else until they answer or press 0.
             
             # Clean punctuation from the end to support "כן." or "לא," etc.
-            stripped_msg = clean_msg.strip(".,!?\"'")
+            stripped_msg = clean_msg.strip(".,!?\"' ")
             
             if stripped_msg in ["כן", "לא", "ידעתי", "לא ידעתי", "כ", "ל"]:
                 conn = get_conn()
+                # Find the LATEST question sent to this user that hasn't been responded to.
+                # We order by sent_at DESC to get the most recent one.
                 last_q = conn.execute(
-                    "SELECT id, subscription_id, question_text FROM sent_questions WHERE user_id=? AND responded_at IS NULL ORDER BY sent_at DESC LIMIT 1", 
+                    "SELECT id, subscription_id FROM sent_questions WHERE user_id=? AND responded_at IS NULL ORDER BY sent_at DESC LIMIT 1", 
                     (user["id"],)
                 ).fetchone()
                 
@@ -107,7 +172,9 @@ def handle_registered_user(phone, user, message):
                         if old_queue:
                             USER_STATES[phone] = {"state": "PROCESSING_QUESTION_QUEUE", "queue": old_queue}
                         else:
-                            del USER_STATES[phone] # Clear answer state
+                            # State will be set back to AWAITING_ANSWER inside send_next_question_or_finish
+                            # or cleared if it's the last question.
+                            del USER_STATES[phone] 
                             
                         from scheduler import send_next_question_or_finish
                         send_next_question_or_finish(dict(sub_row))
@@ -162,9 +229,20 @@ def handle_registered_user(phone, user, message):
                             end_f = daf_to_float(end_str)
                         else:
                             end_str = end_tokens[0]
-                            # if end is just daf, include amud b
+                            # if end is just daf (like "יד"), include amud b (14.5)
+                            # but if it's "יד ע"א" or "יד ע"ב" handled by daf_to_float
                             if 'ע"א' not in end_str and 'ע"ב' not in end_str:
-                                 end_f = daf_to_float(end_str) + 0.5
+                                 # This handles the case where the user just writes the number
+                                 try:
+                                     # Try to see if it's a number/gimatriya
+                                     val = daf_to_float(end_str)
+                                     # If it's a whole number (Amud A), add 0.5 to make it inclusive of the whole daf
+                                     if val == float(int(val)):
+                                         end_f = val + 0.5
+                                     else:
+                                         end_f = val
+                                 except:
+                                     end_f = daf_to_float(end_str)
                             else:
                                  end_f = daf_to_float(end_str)
                     else:
@@ -235,6 +313,10 @@ def handle_registered_user(phone, user, message):
                 end_f = state_info["end_daf"]
 
                 from registration import subscribe as original_subscribe
+                # Use round to prevent floating point issues like 14.5000000000001
+                start_f = round(start_f, 2)
+                end_f = round(end_f, 2)
+                
                 original_subscribe(user["id"], tractate_id, start_f, end_f, rate, hour)
                 
                 summary = f"מסכת {tractate_name} מדף {float_to_daf_str(start_f)} עד {float_to_daf_str(end_f)} בקצב של {rate} דפים ליום, בשעה {hour:02d}:00"
@@ -250,19 +332,25 @@ def handle_registered_user(phone, user, message):
                 return
 
         if state_info["state"] == "PROCESSING_QUESTION_QUEUE":
+            print(f"DEBUG: PROCESSING_QUESTION_QUEUE message: '{message}'")
+            # Re-read queue from DB to be 100% sure we have the latest
+            current_state = get_user_state(phone)
+            queue = current_state.get("queue", [])
+            print(f"DEBUG: Current queue from DB: {queue}")
+            
             if not message.isdigit():
                 send_sms(phone, "בחירה לא תקינה. אנא שלח את מספר המנוי בלבד.")
                 return
             
-            queue = state_info.get("queue", [])
             idx = int(message) - 1
             if idx < 0 or idx >= len(queue):
+                print(f"DEBUG: Invalid index {idx} for queue length {len(queue)}")
                 send_sms(phone, "בחירה לא תקינה. אנא שלח מספר מהרשימה.")
                 return
             
             selected_sub_id = queue.pop(idx)
-            # Update state with the modified queue
-            USER_STATES[phone]["queue"] = queue
+            # FORCE UPDATE into database by setting the whole dict
+            USER_STATES[phone] = {"state": "PROCESSING_QUESTION_QUEUE", "queue": queue}
             
             conn = get_conn()
             sub = conn.execute(
@@ -432,12 +520,15 @@ def handle_registered_user(phone, user, message):
             from scheduler import format_sub_status
             summary_lines = [format_sub_status(s) for s in all_subs]
             send_sms(phone, get_template("already_sent_summary", summary="\n".join(summary_lines)))
+            return # Added return
         elif len(needing_questions) == 1:
             from scheduler import send_next_question_or_finish
             send_next_question_or_finish(needing_questions[0])
+            return # Added return
         else:
             USER_STATES[phone] = {"state": "AWAITING_SUB_SELECTION_FOR_QUESTION"}
             send_sms(phone, get_template("choose_subscription_manual_question", menu=get_subs_menu(needing_questions)))
+            return # Added return
 
     elif message == '2':
         subs = get_user_subscriptions(user['id'])
@@ -445,8 +536,10 @@ def handle_registered_user(phone, user, message):
             USER_STATES[phone] = {"state": "AWAITING_SUB_SELECTION", "action": "AWAITING_UPDATE_DAF"}
             send_sms(phone, get_template("choose_subscription_update_daf", menu=get_subs_menu(subs)))
         else:
-            USER_STATES[phone] = {"state": "AWAITING_UPDATE_DAF", "sub_id": subs[0]["id"] if subs else None}
-            send_sms(phone, get_template("ask_update_daf"))
+            sub = subs[0] if subs else None
+            USER_STATES[phone] = {"state": "AWAITING_UPDATE_DAF", "sub_id": sub["id"] if sub else None}
+            rate = sub["dafim_per_day"] if sub else 0
+            send_sms(phone, get_template("ask_update_daf", rate=rate))
 
     elif message == '3':
         subs = get_user_subscriptions(user['id'])
@@ -513,6 +606,7 @@ def handle_registered_user(phone, user, message):
     else:
         send_sms(phone, get_template(template_name="main_menu", name=user["name"]))
 
+@log_function_entry
 def main():
     clear_screen()
     print("=== Gemara SMS Simulation (Updated) ===")

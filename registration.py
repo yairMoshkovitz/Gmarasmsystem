@@ -6,6 +6,9 @@ from sms_service import send_sms
 from datetime import datetime
 import json
 import os
+from logging_config import get_logger, log_function_entry
+
+logger = get_logger(__name__)
 
 _template_cache = {}
 
@@ -25,9 +28,12 @@ ALL_SHAS_TRACTATES = [
     "כלים", "אהלות", "נגעים", "פרה", "טהרות", "מקואות", "נדה", "מכשירין", "זבים", "טבול יום", "ידיים", "עוקצים"
 ]
 
+@log_function_entry
 def get_template(template_name_pos=None, **kwargs):
     # Use a unique name for the first argument to avoid collisions with kwargs like 'name'
     template_name = kwargs.pop('template_name', template_name_pos)
+    
+    logger.info(f"📝 Loading template: '{template_name}' with params: {list(kwargs.keys())}")
     
     global _template_cache
     
@@ -44,6 +50,7 @@ def get_template(template_name_pos=None, **kwargs):
             if row:
                 template_content = row["content"]
                 _template_cache[template_name] = template_content
+                logger.debug(f"Template '{template_name}' loaded from DB")
             else:
                 # 3. Fallback to JSON
                 template_path = os.path.join(os.path.dirname(__file__), "sms_templates.json")
@@ -53,10 +60,13 @@ def get_template(template_name_pos=None, **kwargs):
                     template_content = templates.get(template_name, "")
                     if template_content:
                         _template_cache[template_name] = template_content
+                        logger.debug(f"Template '{template_name}' loaded from JSON")
         except Exception as e:
+            logger.error(f"Error loading template {template_name}: {e}")
             print(f"Error loading template {template_name}: {e}")
             
     if not template_content:
+        logger.warning(f"Template '{template_name}' not found!")
         return f"Template {template_name} not found"
         
     try:
@@ -76,15 +86,19 @@ def get_template(template_name_pos=None, **kwargs):
             footer = get_template("menu_footer")
             if footer and "Template menu_footer not found" not in footer:
                 formatted_content += footer
-                
+        
+        logger.debug(f"Template '{template_name}' formatted successfully (length: {len(formatted_content)})")
         return formatted_content
     except Exception as e:
+        logger.error(f"Template {template_name} format error: {e}")
         return f"Template {template_name} format error: {e}"
 
+@log_function_entry
 def clear_template_cache():
     global _template_cache
     _template_cache = {}
 
+@log_function_entry
 def register_user(phone: str, name: str, last_name: str = None, city: str = None, age: int = None) -> int:
     """Register a new user. Returns user_id."""
     conn = get_conn()
@@ -119,6 +133,7 @@ def register_user(phone: str, name: str, last_name: str = None, city: str = None
     return user_id
 
 
+@log_function_entry
 def get_all_tractates() -> list:
     """Return all registered tractates."""
     conn = get_conn()
@@ -126,6 +141,7 @@ def get_all_tractates() -> list:
     conn.close()
     return [dict(r) for r in rows]
 
+@log_function_entry
 def find_tractate_by_name(input_name: str):
     """
     Finds a tractate by name, supporting prefixes and 'מסכת' prefix.
@@ -156,6 +172,7 @@ def find_tractate_by_name(input_name: str):
     else:
         return matched_shas_name, matched_shas_name, False
 
+@log_function_entry
 def subscribe(
     user_id: int,
     tractate_id: int,
@@ -214,6 +231,7 @@ def subscribe(
     return sub_id
 
 
+@log_function_entry
 def unsubscribe(user_id: int, tractate_id: int):
     """Deactivate a subscription."""
     conn = get_conn()
@@ -226,6 +244,7 @@ def unsubscribe(user_id: int, tractate_id: int):
     print(f"Unsubscribed user {user_id} from tractate {tractate_id}.")
 
 
+@log_function_entry
 def get_user_subscriptions(user_id: int) -> list:
     """Return active subscriptions for a user."""
     conn = get_conn()

@@ -65,8 +65,9 @@ class PostgresCursorWrapper:
 
 
 class PostgresConnWrapper:
-    def __init__(self, conn):
+    def __init__(self, conn, pool=None):
         self.conn = conn
+        self.pool = pool
 
     def execute(self, query, params=None):
         stripped_query = query.strip().upper()
@@ -102,7 +103,10 @@ class PostgresConnWrapper:
         self.conn.commit()
 
     def close(self):
-        self.conn.close()
+        if self.pool:
+            self.pool.putconn(self.conn)
+        else:
+            self.conn.close()
 
     def fetchone(self, cursor):
         if hasattr(cursor, 'fetchone'):
@@ -115,15 +119,46 @@ class PostgresConnWrapper:
         return []
 
 
+# Connection pool for PostgreSQL (thread-safe)
+_pg_pool = None
+
 def get_conn():
+    global _pg_pool
     if DATABASE_URL:
         import psycopg2
-        url = DATABASE_URL
-        if url.startswith("postgres://"):
-            url = url.replace("postgres://", "postgresql://", 1)
+        from psycopg2 import pool
         
-        conn = psycopg2.connect(url, sslmode='require')
-        return PostgresConnWrapper(conn)
+        # Initialize pool on first use
+        if _pg_pool is None:
+            url = DATABASE_URL
+            if url.startswith("postgres://"):
+                url = url.replace("postgres://", "postgresql://", 1)
+            
+            try:
+                _pg_pool = pool.ThreadedConnectionPool(
+                    minconn=2,
+                    maxconn=20,
+                    dsn=url,
+                    sslmode='require'
+                )
+            except Exception as e:
+                print(f"Error creating connection pool: {e}")
+                # Fallback to direct connection
+                conn = psycopg2.connect(url, sslmode='require')
+                return PostgresConnWrapper(conn)
+        
+        # Get connection from pool
+        try:
+            conn = _pg_pool.getconn()
+            return PostgresConnWrapper(conn, _pg_pool)
+        except Exception as e:
+            print(f"Error getting connection from pool: {e}")
+            # Fallback to direct connection
+            url = DATABASE_URL
+            if url.startswith("postgres://"):
+                url = url.replace("postgres://", "postgresql://", 1)
+            conn = psycopg2.connect(url, sslmode='require')
+            return PostgresConnWrapper(conn)
     else:
         conn = sqlite3.connect(DB_PATH, timeout=10.0)
         conn.row_factory = sqlite3.Row
@@ -174,13 +209,19 @@ def init_db():
                 conn.execute("ALTER TABLE subscriptions ADD COLUMN pause_until DATE")
             
             # Check for UNIQUE constraint in SQLite (Multi-tractate migration)
+            # AND ALSO check for INTEGER vs REAL for end_daf
+            cur.execute("PRAGMA table_info(subscriptions)")
+            table_info = cur.fetchall()
+            end_daf_type = next((col[2] for col in table_info if col[1] == 'end_daf'), 'INTEGER')
+            
             cur.execute("PRAGMA index_list(subscriptions)")
             indexes = cur.fetchall()
             has_unique = any(idx[1].startswith('sqlite_autoindex_subscriptions') or idx[2] == 1 for idx in indexes)
-            if has_unique:
-                print("Removing UNIQUE constraint from subscriptions (SQLite)...")
-                cur.execute("CREATE TABLE subscriptions_new (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL REFERENCES users(id), tractate_id INTEGER NOT NULL REFERENCES tractates(id), start_daf INTEGER NOT NULL DEFAULT 2, end_daf INTEGER NOT NULL, current_daf REAL NOT NULL DEFAULT 2.0, dafim_per_day REAL NOT NULL DEFAULT 1.0, send_hour INTEGER NOT NULL DEFAULT 8, is_active INTEGER DEFAULT 1, pause_until DATE, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
-                cur.execute("INSERT INTO subscriptions_new (id, user_id, tractate_id, start_daf, end_daf, current_daf, dafim_per_day, send_hour, is_active, pause_until, created_at) SELECT id, user_id, tractate_id, start_daf, end_daf, current_daf, dafim_per_day, send_hour, is_active, pause_until, created_at FROM subscriptions")
+            
+            if has_unique or end_daf_type.upper() == 'INTEGER':
+                print(f"Migrating subscriptions table (SQLite). Unique: {has_unique}, EndDafType: {end_daf_type}")
+                cur.execute("CREATE TABLE subscriptions_new (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL REFERENCES users(id), tractate_id INTEGER NOT NULL REFERENCES tractates(id), start_daf REAL NOT NULL DEFAULT 2, end_daf REAL NOT NULL, current_daf REAL NOT NULL DEFAULT 2.0, dafim_per_day REAL NOT NULL DEFAULT 1.0, send_hour INTEGER NOT NULL DEFAULT 8, is_active INTEGER DEFAULT 1, pause_until DATE, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
+                cur.execute("INSERT INTO subscriptions_new (id, user_id, tractate_id, start_daf, end_daf, current_daf, dafim_per_day, send_hour, is_active, pause_until, created_at) SELECT id, user_id, tractate_id, CAST(start_daf AS REAL), CAST(end_daf AS REAL), current_daf, dafim_per_day, send_hour, is_active, pause_until, created_at FROM subscriptions")
                 cur.execute("DROP TABLE subscriptions")
                 cur.execute("ALTER TABLE subscriptions_new RENAME TO subscriptions")
             
@@ -196,17 +237,20 @@ def init_db():
         schema = schema.replace("REAL", "DOUBLE PRECISION")
         
         raw_conn = conn.conn
-        cur = raw_conn.cursor()
         # Drop sms_history if it exists and create sms_log (migration)
         try:
+            cur = raw_conn.cursor()
             cur.execute("SELECT 1 FROM information_schema.tables WHERE table_name='sms_history'")
             if cur.fetchone():
                 print("Migrating sms_history to sms_log...")
                 cur.execute("CREATE TABLE IF NOT EXISTS sms_log (id SERIAL PRIMARY KEY, user_id INTEGER, phone TEXT NOT NULL, direction TEXT NOT NULL, message TEXT NOT NULL, sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
                 cur.execute("INSERT INTO sms_log (user_id, phone, direction, message, sent_at) SELECT user_id, phone, direction, message, sent_at FROM sms_history")
                 cur.execute("DROP TABLE sms_history")
+                raw_conn.commit()
+            cur.close()
         except Exception as e:
             print(f"Postgres migration error: {e}")
+            raw_conn.rollback()
 
         for statement in schema.split(';'):
             clean_statement = []
@@ -217,11 +261,15 @@ def init_db():
             stmt = '\n'.join(clean_statement).strip()
             if stmt:
                 try:
+                    cur = raw_conn.cursor()
                     cur.execute(stmt)
+                    raw_conn.commit()
+                    cur.close()
                 except Exception as e:
-                    pass
-        raw_conn.commit()
-        cur.close()
+                    # Check if it's just "already exists" which is fine with IF NOT EXISTS but Postgres might still complain
+                    # or if the transaction is aborted
+                    raw_conn.rollback()
+                    # print(f"Postgres init notice: {e}")
     else:
         conn.executescript(schema)
         conn.commit()
@@ -286,6 +334,15 @@ def extract_daf_number(val):
         if match: return int(match.group(1))
     return 2
 
+
+def seed_questions():
+    """Trigger the smart migration from JSON to DB questions table."""
+    try:
+        from migrate_questions import migrate
+        print("🚀 Starting automated questions migration...")
+        migrate()
+    except Exception as e:
+        print(f"❌ Automated migration failed: {e}")
 
 def seed_sms_templates():
     """Seed SMS templates from JSON to DB if they don't exist."""
@@ -406,7 +463,33 @@ def float_to_daf_str(val: float) -> str:
     return f"{daf_str} {amud}"
 
 
+def get_setting(key: str, default=None):
+    """Retrieve a setting from the database."""
+    conn = get_conn()
+    row = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+    conn.close()
+    if row:
+        return row["value"]
+    return default
+
+
+def set_setting(key: str, value: str):
+    """Save a setting to the database."""
+    conn = get_conn()
+    is_postgres = bool(os.environ.get("DATABASE_URL"))
+    if is_postgres:
+        conn.execute("""
+            INSERT INTO settings (key, value, updated_at) VALUES (%s, %s, CURRENT_TIMESTAMP)
+            ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at
+        """, (key, str(value)))
+    else:
+        conn.execute("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)", (key, str(value)))
+    conn.commit()
+    conn.close()
+
+
 if __name__ == "__main__":
     init_db()
     seed_tractates()
     seed_sms_templates()
+    seed_questions()
