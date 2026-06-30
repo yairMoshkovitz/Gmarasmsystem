@@ -42,7 +42,8 @@ def select_questions_for_range(
         if max(start_f, q_start) <= min(end_f, q_end):
             eligible.append(q)
 
-    random.shuffle(eligible)
+    TYPE_ORDER = {"רש\"י": 0, "תוס'": 1}
+    eligible.sort(key=lambda q: TYPE_ORDER.get(q.get("question_type", ""), 99))
     return eligible[:max_questions]
 
 
@@ -64,9 +65,13 @@ def format_question_sms(q: dict, index: int, tractate_name: str, is_last: bool =
     
     template_name = "question_format_last" if is_last else "question_format"
     
+    q_type = q.get("question_type", "")
+    label = f"[{q_type}] " if q_type else ""
+    question_text = label + (q.get("text") or q.get("question") or "")
+
     return get_template(
         template_name,
         tractate=tractate_name,
         daf=daf_str,
-        question=q.get("text") or q.get("question") or ""
+        question=question_text
     )
