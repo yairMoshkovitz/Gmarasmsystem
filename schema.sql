@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     current_daf REAL NOT NULL DEFAULT 2.0, -- current position (2.0=2a, 2.5=2b)
     dafim_per_day REAL NOT NULL DEFAULT 1.0, -- 0.5, 1, 2 etc
     send_hour INTEGER NOT NULL DEFAULT 8,   -- hour to send (0-23)
+    question_type TEXT DEFAULT 'all',      -- 'all' or 'rashi_only'
     is_active INTEGER DEFAULT 1,
     pause_until DATE,                      -- date until which the subscription is paused
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP

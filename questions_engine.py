@@ -32,7 +32,7 @@ def get_daf_range_for_question(q: dict) -> tuple[float, float]:
 @log_function_entry
 def select_questions_for_range(
     tractate_id: int, start_f: float, end_f: float, already_sent_ids: list,
-    max_questions: int = 2
+    max_questions: int = 2, question_type_pref: str = 'all'
 ) -> list:
     """Filter questions that overlap with the given daf range and haven't been sent."""
     conn = get_conn()
@@ -51,6 +51,9 @@ def select_questions_for_range(
         AND start_daf <= ? AND end_daf >= ?
     """
     params = [tractate_id, end_f, start_f]
+    
+    if question_type_pref == 'rashi_only':
+        query += " AND (question_type IS NULL OR question_type NOT LIKE '%תוס%')"
     
     if already_sent_ids:
         query += f" AND external_id NOT IN ({placeholders})"

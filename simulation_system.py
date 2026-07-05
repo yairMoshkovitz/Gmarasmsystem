@@ -273,19 +273,51 @@ def handle_registered_user(phone, user, message):
                         send_sms(phone, "שעה לא תקינה. אנא בחר מספר בין 01 ל-24.")
                         return
 
+                # Transition to Step 4: Rashi/Tosafot preference
+                USER_STATES[phone] = {
+                    "state": "AWAITING_REG_STEP_4",
+                    "tractate_id": state_info["tractate_id"],
+                    "tractate_name": state_info["tractate_name"],
+                    "start_daf": state_info["start_daf"],
+                    "end_daf": state_info["end_daf"],
+                    "rate": rate,
+                    "hour": hour
+                }
+                send_sms(phone, get_template("registration_step_4_instructions"))
+                return
+            except Exception as e:
+                print(f"DEBUG Step 3 Error: {e}")
+                send_sms(phone, "שגיאה בפרטי ההספק או השעה. אנא ודא שהכנסת מספרים תקינים.\nלדוגמא: 1, 18")
+                return
+
+        # 4. State: AWAITING_REG_STEP_4 (Rashi/Tosafot preference)
+        if state_info["state"] == "AWAITING_REG_STEP_4":
+            try:
+                choice = message.strip()
+                if choice == "1":
+                    q_type_pref = 'rashi_only'
+                    q_type_label = 'רש"י בלבד'
+                elif choice == "2":
+                    q_type_pref = 'all'
+                    q_type_label = 'רש"י ותוספות'
+                else:
+                    send_sms(phone, "בחירה לא תקינה. שלח 1 לרש\"י בלבד או 2 גם מתוספות.")
+                    return
+
                 tractate_id = state_info["tractate_id"]
                 tractate_name = state_info["tractate_name"]
                 start_f = state_info["start_daf"]
                 end_f = state_info["end_daf"]
+                rate = state_info["rate"]
+                hour = state_info["hour"]
 
                 from registration import subscribe as original_subscribe
-                # Use round to prevent floating point issues like 14.5000000000001
                 start_f = round(start_f, 2)
                 end_f = round(end_f, 2)
                 
-                original_subscribe(user["id"], tractate_id, start_f, end_f, rate, hour)
+                original_subscribe(user["id"], tractate_id, start_f, end_f, rate, hour, question_type=q_type_pref)
                 
-                summary = f"מסכת {tractate_name} מדף {float_to_daf_str(start_f)} עד {float_to_daf_str(end_f)} בקצב של {rate} דפים ליום, בשעה {hour:02d}:00"
+                summary = f"מסכת {tractate_name} מדף {float_to_daf_str(start_f)} עד {float_to_daf_str(end_f)} בקצב של {rate} דפים ליום, בשעה {hour:02d}:00 ({q_type_label})"
                 
                 # Clear state
                 del USER_STATES[phone]
@@ -293,8 +325,8 @@ def handle_registered_user(phone, user, message):
                 send_sms(phone, get_template("registration_final_success", name=user["name"], summary=summary))
                 return
             except Exception as e:
-                print(f"DEBUG Step 3 Error: {e}")
-                send_sms(phone, "שגיאה בפרטי ההספק או השעה. אנא ודא שהכנסת מספרים תקינים.\nלדוגמא: 1, 18")
+                print(f"DEBUG Step 4 Error: {e}")
+                send_sms(phone, "שגיאה בשמירת ההעדפה. אנא נסה שנית.")
                 return
 
         if state_info["state"] == "PROCESSING_QUESTION_QUEUE":

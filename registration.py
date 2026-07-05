@@ -180,6 +180,7 @@ def subscribe(
     end_daf: float,        # Float value
     rate: float,           # 0.5, 1, 2 etc
     hour: int,             # 0-23
+    question_type: str = 'all' # 'all' or 'rashi_only'
 ) -> int:
     """Subscribe a user to a tractate learning schedule."""
     conn = get_conn()
@@ -201,8 +202,8 @@ def subscribe(
     if existing:
         # Update existing instead of creating new
         conn.execute(
-            "UPDATE subscriptions SET current_daf=?, dafim_per_day=?, send_hour=? WHERE id=?",
-            (start_daf, rate, hour, existing["id"]),
+            "UPDATE subscriptions SET current_daf=?, dafim_per_day=?, send_hour=?, question_type=? WHERE id=?",
+            (start_daf, rate, hour, question_type, existing["id"]),
         )
         sub_id = existing["id"]
     else:
@@ -215,10 +216,10 @@ def subscribe(
         conn.execute(
             """
             INSERT INTO subscriptions
-              (user_id, tractate_id, start_daf, end_daf, current_daf, dafim_per_day, send_hour, is_active)
-            VALUES (?,?,?,?,?,?,?,1)
+              (user_id, tractate_id, start_daf, end_daf, current_daf, dafim_per_day, send_hour, question_type, is_active)
+            VALUES (?,?,?,?,?,?,?,?,1)
             """,
-            (user_id, tractate_id, int(start_daf), end_daf, start_daf, rate, hour),
+            (user_id, tractate_id, int(start_daf), end_daf, start_daf, rate, hour, question_type),
         )
         sub_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
     conn.commit()

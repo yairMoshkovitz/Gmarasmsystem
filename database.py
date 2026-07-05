@@ -219,6 +219,12 @@ def init_db():
                 print("Migrating questions table (SQLite) - adding question_type...")
                 conn.execute("ALTER TABLE questions ADD COLUMN question_type TEXT")
             
+            cur.execute("PRAGMA table_info(subscriptions)")
+            cols = [row[1] for row in cur.fetchall()]
+            if 'question_type' not in cols:
+                print("Migrating subscriptions table (SQLite) - adding question_type...")
+                conn.execute("ALTER TABLE subscriptions ADD COLUMN question_type TEXT DEFAULT 'all'")
+
             # Check for UNIQUE constraint in SQLite (Multi-tractate migration)
             # AND ALSO check for INTEGER vs REAL for end_daf
             cur.execute("PRAGMA table_info(subscriptions)")

@@ -349,7 +349,8 @@ def send_next_question_or_finish(sub: dict, override_queue: list = None):
         end_f = sub["end_daf"]
 
     daily_selection = select_questions_for_range(
-        sub["tractate_id"], start_f, end_f, already_sent, max_questions=1
+        sub["tractate_id"], start_f, end_f, already_sent, max_questions=1,
+        question_type_pref=sub.get("question_type", "all")
     )
 
     if daily_selection:
