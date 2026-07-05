@@ -92,6 +92,21 @@ class PostgresConnWrapper:
                 query += " ON CONFLICT (name) DO UPDATE SET json_path = EXCLUDED.json_path, total_dafim = EXCLUDED.total_dafim"
             elif "users" in query:
                 query += " ON CONFLICT (phone) DO UPDATE SET name = EXCLUDED.name"
+            elif "settings" in query:
+                query += " ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at"
+            elif "sms_templates" in query:
+                query += " ON CONFLICT (key) DO NOTHING"
+
+        if "INSERT OR IGNORE" in stripped_query:
+            query = query.replace("INSERT OR IGNORE", "INSERT")
+            if "tractates" in query:
+                query += " ON CONFLICT (name) DO NOTHING"
+            elif "users" in query:
+                query += " ON CONFLICT (phone) DO NOTHING"
+            elif "sms_templates" in query:
+                query += " ON CONFLICT (key) DO NOTHING"
+            elif "settings" in query:
+                query += " ON CONFLICT (key) DO NOTHING"
         
         cur = self.conn.cursor()
         cur.execute(query, params)
@@ -124,7 +139,8 @@ _pg_pool = None
 
 def get_conn():
     global _pg_pool
-    if DATABASE_URL:
+    # If we are in test mode (SQLite), skip Postgres logic
+    if DATABASE_URL and not str(DB_PATH).endswith("_test.db"):
         import psycopg2
         from psycopg2 import pool
         
@@ -168,10 +184,11 @@ def get_conn():
 def init_db():
     """Initialize the database schema."""
     conn = get_conn()
+    is_postgres = bool(os.environ.get("DATABASE_URL")) and not str(DB_PATH).endswith("_test.db")
     
     # Check if we need to migrate existing tables
     try:
-        if DATABASE_URL:
+        if is_postgres:
             cur = conn.conn.cursor()
             cur.execute("SELECT column_name FROM information_schema.columns WHERE table_name='users' AND column_name='last_name'")
             if not cur.fetchone():
@@ -254,7 +271,7 @@ def init_db():
     with open(SCHEMA_PATH, "r", encoding="utf-8") as f:
         schema = f.read()
 
-    if DATABASE_URL:
+    if is_postgres:
         schema = schema.replace("INTEGER PRIMARY KEY AUTOINCREMENT", "SERIAL PRIMARY KEY")
         schema = schema.replace("REAL", "DOUBLE PRECISION")
         
@@ -379,7 +396,7 @@ def seed_sms_templates():
         return
 
     conn = get_conn()
-    is_postgres = bool(os.environ.get("DATABASE_URL"))
+    is_postgres = bool(os.environ.get("DATABASE_URL")) and not str(DB_PATH).endswith("_test.db")
     
     for key, content in templates.items():
         if is_postgres:
@@ -397,7 +414,7 @@ def seed_sms_templates():
 def seed_tractates():
     """Register tractates from JSON files in data/ directory."""
     conn = get_conn()
-    is_postgres = bool(os.environ.get("DATABASE_URL"))
+    is_postgres = bool(os.environ.get("DATABASE_URL")) and not str(DB_PATH).endswith("_test.db")
     
     # Check multiple locations for JSON files
     search_paths = [DATA_DIR, Path(__file__).parent]
@@ -498,7 +515,7 @@ def get_setting(key: str, default=None):
 def set_setting(key: str, value: str):
     """Save a setting to the database."""
     conn = get_conn()
-    is_postgres = bool(os.environ.get("DATABASE_URL"))
+    is_postgres = bool(os.environ.get("DATABASE_URL")) and not str(DB_PATH).endswith("_test.db")
     if is_postgres:
         conn.execute("""
             INSERT INTO settings (key, value, updated_at) VALUES (%s, %s, CURRENT_TIMESTAMP)

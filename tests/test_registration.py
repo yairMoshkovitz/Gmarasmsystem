@@ -26,6 +26,9 @@ def test_full_registration_flow():
 
     # Step 3: Rate and Hour
     simulate_inbound(phone, "1, 18")
+
+    # Step 4: Question preference
+    simulate_inbound(phone, "1")
     
     all_msgs = get_all_outgoing_sms(phone)
     assert any("מצויין משה נרשמת" in m for m in all_msgs)
@@ -35,6 +38,7 @@ def test_registration_with_gimatriya():
     simulate_inbound(phone, "דוד, לוי, ירושלים, 30")
     simulate_inbound(phone, "ברכות כ עד ל")
     simulate_inbound(phone, "1, 10")
+    simulate_inbound(phone, "1")
     
     conn = get_conn()
     user = conn.execute("SELECT id FROM users WHERE phone=?", (phone,)).fetchone()
