@@ -53,7 +53,10 @@ def select_questions_for_range(
     params = [tractate_id, end_f, start_f]
     
     if question_type_pref == 'rashi_only':
-        query += " AND (question_type IS NULL OR question_type NOT LIKE '%תוס%')"
+        # Escape % for Postgres if necessary, but database.py might handle it.
+        # Actually, let's use a placeholder to be safe and avoid % issues.
+        query += " AND (question_type IS NULL OR question_type NOT LIKE ?)"
+        params.append('%תוס%')
     
     if already_sent_ids:
         query += f" AND external_id NOT IN ({placeholders})"
