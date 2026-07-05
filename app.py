@@ -795,8 +795,8 @@ def inforu_webhook():
 
 @log_function_entry
 def process_incoming_sms(phone, message):
-    admin_phone = "0584555723"
-    if phone == admin_phone:
+    admin_phone = ["0584555723","0556622188"]
+    if phone in admin_phone:
         msg_clean = message.strip().upper()
         if msg_clean in ["LIVE ON", "לייב פועל", "מצב חיבור"]:
             set_live_mode(True)

@@ -348,28 +348,49 @@ def send_next_question_or_finish(sub: dict, override_queue: list = None):
     if end_f > sub["end_daf"]:
         end_f = sub["end_daf"]
 
-    daily_selection = select_questions_for_range(
-        sub["tractate_id"], start_f, end_f, already_sent, max_questions=1,
+    # Select available questions for the current range
+    # We ask for max 2 to see if there's more than one left
+    available_questions = select_questions_for_range(
+        sub["tractate_id"], start_f, end_f, already_sent, max_questions=2,
         question_type_pref=sub.get("question_type", "all")
     )
 
-    if daily_selection:
-        q = daily_selection[0]
+    if available_questions:
+        q = available_questions[0]
         conn = get_conn()
+        # Use external_id instead of internal DB id to ensure correct filtering in next selection
+        q_id_to_store = str(q.get("external_id") or q.get("id"))
+        
+        logger.info(f"Sending question to user {sub['user_id']} (sub {sub['id']}): DB_ID={q['id']}, EXT_ID={q['external_id']}")
+        
         conn.execute(
             "INSERT INTO sent_questions (user_id, subscription_id, question_id, question_text) VALUES (?, ?, ?, ?)",
-            (sub["user_id"], sub["id"], str(q.get("id")), q.get("text") or q.get("question") or ""),
+            (sub["user_id"], sub["id"], q_id_to_store, q.get("text") or q.get("question") or ""),
         )
         conn.commit()
         
-        # Verify insertion for debug
-        c2 = conn.execute("SELECT COUNT(*) FROM sent_questions WHERE subscription_id=?", (sub["id"],)).fetchone()
-        print(f"DEBUG: sent_questions count for sub {sub['id']} is now {c2[0]}")
+        # Current count for today (including the one we just inserted)
+        # Re-check to be absolutely sure
+        if is_postgres:
+            c2_row = conn.execute(
+                "SELECT COUNT(*) FROM sent_questions WHERE subscription_id=? AND sent_at::date = CURRENT_DATE",
+                (sub["id"],)
+            ).fetchone()
+        else:
+            c2_row = conn.execute(
+                "SELECT COUNT(*) FROM sent_questions WHERE subscription_id=? AND date(sent_at) = date('now')",
+                (sub["id"],)
+            ).fetchone()
+            
+        count_sent_today = c2_row[0] if c2_row else 1
+        print(f"DEBUG: sent_questions count for sub {sub['id']} is now {count_sent_today}")
         
-        # We check if this is the last question for today
-        # count_row[0] is questions sent BEFORE this one. 
-        # c2[0] is questions sent INCLUDING this one.
-        is_last = (c2[0] >= daily_limit)
+        # Determine if this is the last question for today
+        # It's the last if:
+        # 1. We reached the daily limit (e.g. 2 questions)
+        # 2. OR there are no more questions available in this range
+        is_last = (count_sent_today >= daily_limit) or (len(available_questions) == 1)
+        
         conn.close()
         
         msg = format_question_sms(q, 1, sub["tractate_name"], is_last=is_last)

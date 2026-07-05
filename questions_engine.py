@@ -50,6 +50,11 @@ def select_questions_for_range(
         WHERE tractate_id = ?
         AND start_daf <= ? AND end_daf >= ?
     """
+    
+    # Debug: show what we are filtering
+    if already_sent_ids:
+        logger.debug(f"Filtering out already sent questions: {already_sent_ids}")
+
     params = [tractate_id, end_f, start_f]
     
     if question_type_pref == 'rashi_only':
@@ -66,6 +71,14 @@ def select_questions_for_range(
     conn.close()
 
     eligible = [dict(row) for row in rows]
+    
+    if eligible:
+        logger.info(f"Found {len(eligible)} eligible questions for tractate {tractate_id} in range {start_f}-{end_f}")
+        for q in eligible:
+            logger.debug(f"  - Question: DB_ID={q['id']}, EXT_ID={q['external_id']}, Type={q['question_type']}, Text={q['text'][:30]}...")
+    else:
+        logger.info(f"No eligible questions found for tractate {tractate_id} in range {start_f}-{end_f}")
+
     random.shuffle(eligible)
     return eligible[:max_questions]
 
@@ -74,12 +87,21 @@ def select_questions_for_range(
 def get_already_sent_ids(user_id: int, subscription_id: int) -> list[str]:
     """Get list of question IDs already sent to this subscription."""
     conn = get_conn()
+    # We need both the question_id (which might be external_id now) AND we should check
+    # if it was an internal ID before the fix.
     rows = conn.execute(
         "SELECT question_id FROM sent_questions WHERE user_id=? AND subscription_id=?",
         (user_id, subscription_id)
     ).fetchall()
     conn.close()
-    return [str(row["question_id"]) for row in rows]
+    
+    ids = []
+    for row in rows:
+        val = row["question_id"]
+        if val:
+            ids.append(str(val).strip())
+    
+    return ids
 
 
 @log_function_entry
