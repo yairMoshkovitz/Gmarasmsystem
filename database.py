@@ -182,6 +182,11 @@ def init_db():
             if not cur.fetchone():
                 print("Migrating subscriptions table (Postgres)...")
                 cur.execute("ALTER TABLE subscriptions ADD COLUMN pause_until DATE")
+            
+            cur.execute("SELECT column_name FROM information_schema.columns WHERE table_name='subscriptions' AND column_name='question_type'")
+            if not cur.fetchone():
+                print("Migrating subscriptions table (Postgres) - adding question_type...")
+                cur.execute("ALTER TABLE subscriptions ADD COLUMN question_type TEXT DEFAULT 'all'")
 
             cur.execute("SELECT column_name FROM information_schema.columns WHERE table_name='questions' AND column_name='question_type'")
             if not cur.fetchone():
