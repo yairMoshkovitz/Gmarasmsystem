@@ -809,7 +809,9 @@ def process_incoming_sms(phone, message):
             send_sms(phone, "מצב LIVE כובה. המערכת חזרה למצב סימולציה.")
             return
         elif not get_live_mode():
+            set_live_mode(True)
             send_sms(phone, "המערכת במצב כבוי כרגע להלקה השב: הדלק")
+            set_live_mode(False)
 
     conn = get_conn()
     is_postgres = bool(os.environ.get("DATABASE_URL"))
