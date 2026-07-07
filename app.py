@@ -797,16 +797,16 @@ def inforu_webhook():
 def process_incoming_sms(phone, message):
     admin_phone = ["0584555723","0556622188"]
     if phone in admin_phone:
+        from sms_service import send_sms
         msg_clean = message.strip().upper()
         if msg_clean in ["LIVE ON", "לייב פועל", "מצב חיבור","הדלקה","הדלק"]:
             set_live_mode(True)
-            from sms_service import send_sms
             send_sms(phone, "מצב LIVE הופעל בהצלחה. המערכת תשלח כעת הודעות אמיתיות.")
             return
         elif msg_clean in ["LIVE OFF", "לייב כבוי", "מצב סימולציה"]:
+            
+            send_sms(phone, "מצב LIVE כובה. המערכת עוברת למצב סימולציה.")
             set_live_mode(False)
-            from sms_service import send_sms
-            send_sms(phone, "מצב LIVE כובה. המערכת חזרה למצב סימולציה.")
             return
         elif not get_live_mode():
             set_live_mode(True)
