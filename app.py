@@ -799,11 +799,11 @@ def process_incoming_sms(phone, message):
     if phone in admin_phone:
         from sms_service import send_sms
         msg_clean = message.strip().upper()
-        if msg_clean in ["LIVE ON", "לייב פועל", "מצב חיבור","הדלקה","הדלק"]:
+        if msg_clean in ["LIVE ON", "לייב פועל", "מצב חיבור","הדלקה","הדלק","הפעלה"]:
             set_live_mode(True)
             send_sms(phone, "מצב LIVE הופעל בהצלחה. המערכת תשלח כעת הודעות אמיתיות.")
             return
-        elif msg_clean in ["LIVE OFF", "לייב כבוי", "מצב סימולציה"]:
+        elif msg_clean in ["LIVE OFF", "לייב כבוי", "מצב סימולציה","כיבוי"]:
             
             send_sms(phone, "מצב LIVE כובה. המערכת עוברת למצב סימולציה.")
             set_live_mode(False)
