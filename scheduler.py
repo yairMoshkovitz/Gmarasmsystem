@@ -635,11 +635,13 @@ def run_hour(hour: int = None, force_date: date = None):
         hour = israel_now.hour
     
     # Special case: 23:55 - advance all subscriptions for tomorrow
+    # Note: this must run regardless of live_mode. Daf advancement is internal state
+    # progression, not message sending (send_sms already gates on live_mode on its own).
+    # Skipping it while live_mode is off silently freezes users on "today's" daf.
     if hour == 23 and israel_now.minute >= 55:
-        if get_live_mode():
-            print("🕐 Running daily subscription advancement and inactivity check at 23:55...")
-            advance_all_subscriptions_daily()
-            check_user_inactivity()
+        print("🕐 Running daily subscription advancement and inactivity check at 23:55...")
+        advance_all_subscriptions_daily()
+        check_user_inactivity()
         return
     
     if not get_live_mode():
