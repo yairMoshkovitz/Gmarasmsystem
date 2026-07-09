@@ -516,7 +516,7 @@ def handle_registered_user(phone, user, message):
 
         if not needing_questions:
             from scheduler import format_sub_status
-            summary_lines = [format_sub_status(s) for s in all_subs]
+            summary_lines = [format_sub_status(s, next_day=True) for s in all_subs]
             send_sms(phone, get_template("already_sent_summary", summary="\n".join(summary_lines)))
             return # Added return
         elif len(needing_questions) == 1:

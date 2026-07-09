@@ -99,10 +99,19 @@ def advance_subscription(sub_id: int, dafim_per_day: float):
     conn.close()
 
 @log_function_entry
-def format_sub_status(sub: dict) -> str:
-    """Format a standard status line for a subscription using sub_status_info template."""
-    # current_daf = the next daf to study (what we'll study tomorrow/today)
+def format_sub_status(sub: dict, next_day: bool = False) -> str:
+    """
+    Format a standard status line for a subscription using sub_status_info template.
+    The template text always says "tomorrow's study will be X". current_daf only
+    advances at 23:55, so callers that run mid-day AFTER today's questions were
+    already sent (e.g. study closure) must pass next_day=True to preview the daf
+    that 23:55 will advance to - otherwise this shows today's (already-sent) daf.
+    Callers where current_daf itself is the next upcoming study (e.g. resume-from-pause,
+    where no advancement happened during the pause) should leave next_day=False.
+    """
     next_start = sub["current_daf"]
+    if next_day:
+        next_start += sub["dafim_per_day"]
 
     sub_range = f"{float_to_daf_str(sub['start_daf'])} - {float_to_daf_str(sub['end_daf'])}"
 
@@ -266,7 +275,7 @@ def finish_subscription_day(sub: dict, override_queue: list = None):
     conn.close()
     
     if all_user_subs:
-        status_lines = [format_sub_status(dict(s)) for s in all_user_subs]
+        status_lines = [format_sub_status(dict(s), next_day=True) for s in all_user_subs]
         combined_status = "\n".join(status_lines)
         
         # Check if the subscription that just finished is still active
