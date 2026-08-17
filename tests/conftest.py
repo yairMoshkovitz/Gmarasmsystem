@@ -1,6 +1,7 @@
 import pytest
 import os
 import sqlite3
+import base64
 from pathlib import Path
 from database import DB_PATH, SCHEMA_PATH, init_db, seed_tractates, seed_sms_templates, seed_questions, get_conn
 from sms_service import set_live_mode
@@ -8,7 +9,7 @@ from simulation_system import USER_STATES
 
 # Tables that should be cleared between tests (not questions/tractates/sms_templates)
 _PER_TEST_TABLES = ["users", "subscriptions", "sent_questions", "sms_log",
-                    "pending_admin_messages", "settings"]
+                    "pending_admin_messages", "settings", "support_requests", "assignees"]
 
 TEST_DB = "gemara_sms_test.db"
 
@@ -72,3 +73,11 @@ def client():
     app.config['TESTING'] = True
     with app.test_client() as client:
         yield client
+
+
+@pytest.fixture
+def auth_headers(monkeypatch):
+    """Basic Auth header for hitting @basic_auth_required routes in tests."""
+    monkeypatch.setenv("SITE_PASSWORD", "testpass123")
+    creds = base64.b64encode(b"admin:testpass123").decode()
+    return {"Authorization": f"Basic {creds}"}

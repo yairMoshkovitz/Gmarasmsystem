@@ -4,7 +4,7 @@ simulation_system.py - SMS bot simulation with numeric menu and states
 import os
 import sys
 from datetime import datetime, timedelta
-from registration import register_user, subscribe, get_all_tractates, get_user_subscriptions, get_template, find_tractate_by_name
+from registration import register_user, subscribe, get_all_tractates, get_user_subscriptions, get_frozen_subscriptions, get_template, find_tractate_by_name
 from scheduler import send_daily_questions, has_sent_today, send_next_question_or_finish
 from database import get_conn, float_to_daf_str, daf_to_float
 from sms_service import get_sms_history, send_sms, receive_sms
@@ -362,7 +362,10 @@ def handle_registered_user(phone, user, message):
             return
 
         if state_info["state"].startswith("AWAITING_SUB_SELECTION"):
-            subs = get_user_subscriptions(user['id'])
+            if state_info.get("action") == "AWAITING_RESUME":
+                subs = get_frozen_subscriptions(user['id'])
+            else:
+                subs = get_user_subscriptions(user['id'])
             if not message.isdigit():
                 send_sms(phone, "בחירה לא תקינה. אנא שלח את מספר המנוי בלבד.")
                 return
@@ -402,7 +405,7 @@ def handle_registered_user(phone, user, message):
                 del USER_STATES[phone]
             elif original_action == "AWAITING_RESUME":
                 conn = get_conn()
-                conn.execute("UPDATE subscriptions SET pause_until=NULL WHERE id=?", (selected_sub["id"],))
+                conn.execute("UPDATE subscriptions SET is_active=1, pause_until=NULL WHERE id=?", (selected_sub["id"],))
                 conn.commit()
                 # Refresh to get current info
                 updated = conn.execute("SELECT s.*, t.name as tractate_name FROM subscriptions s JOIN tractates t ON s.tractate_id = t.id WHERE s.id=?", (selected_sub["id"],)).fetchone()
@@ -549,13 +552,13 @@ def handle_registered_user(phone, user, message):
             send_sms(phone, get_template("ask_pause_days"))
 
     elif message == '4':
-        subs = [s for s in get_user_subscriptions(user['id']) if s.get('pause_until')]
+        subs = get_frozen_subscriptions(user['id'])
         if len(subs) > 1:
             USER_STATES[phone] = {"state": "AWAITING_SUB_SELECTION", "action": "AWAITING_RESUME"}
             send_sms(phone, get_template("choose_subscription_resume", menu=get_subs_menu(subs)))
         elif len(subs) == 1:
             conn = get_conn()
-            conn.execute("UPDATE subscriptions SET pause_until=NULL WHERE id=?", (subs[0]["id"],))
+            conn.execute("UPDATE subscriptions SET is_active=1, pause_until=NULL WHERE id=?", (subs[0]["id"],))
             conn.commit()
             # Refresh to get current info
             updated = conn.execute("SELECT s.*, t.name as tractate_name FROM subscriptions s JOIN tractates t ON s.tractate_id = t.id WHERE s.id=?", (subs[0]["id"],)).fetchone()

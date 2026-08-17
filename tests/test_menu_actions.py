@@ -60,6 +60,29 @@ def test_option_4_resume():
     assert sub['pause_until'] is None
     conn.close()
 
+def test_option_4_resume_after_auto_inactivity_freeze():
+    """Regression test: a subscription auto-frozen by the 7-day inactivity job
+    (is_active=0, pause_until still NULL) must show up and be resumable via
+    option 4, not just subscriptions paused manually via option 3."""
+    phone = "0501110041"
+    user_id, sub_id = create_user_with_subscription(phone, "User41")
+
+    # Simulate what scheduler.check_user_inactivity() does: deactivate the
+    # subscription without touching pause_until.
+    conn = get_conn()
+    conn.execute("UPDATE subscriptions SET is_active=0 WHERE id=?", (sub_id,))
+    conn.commit()
+    conn.close()
+
+    simulate_inbound(phone, "4")
+    assert "אין לך מנויים מוקפאים" not in get_last_sms(phone)
+
+    conn = get_conn()
+    sub = conn.execute("SELECT is_active, pause_until FROM subscriptions WHERE id=?", (sub_id,)).fetchone()
+    assert sub['is_active'] == 1
+    assert sub['pause_until'] is None
+    conn.close()
+
 def test_option_5_change_hour():
     phone = "0501110005"
     user_id, sub_id = create_user_with_subscription(phone, "User5")

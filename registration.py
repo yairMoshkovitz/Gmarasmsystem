@@ -261,3 +261,22 @@ def get_user_subscriptions(user_id: int) -> list:
     ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+@log_function_entry
+def get_frozen_subscriptions(user_id: int) -> list:
+    """Return subscriptions that are frozen, whether manually paused (pause_until set)
+    or auto-deactivated by the 7-day inactivity job (is_active=0)."""
+    conn = get_conn()
+    rows = conn.execute(
+        """
+        SELECT s.*, t.name as tractate_name, u.phone, u.name
+        FROM subscriptions s
+        JOIN tractates t ON s.tractate_id = t.id
+        JOIN users u ON s.user_id = u.id
+        WHERE s.user_id=? AND (s.is_active=0 OR s.pause_until IS NOT NULL)
+        """,
+        (user_id,),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]

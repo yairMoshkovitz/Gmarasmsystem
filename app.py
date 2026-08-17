@@ -6,7 +6,7 @@ import time
 import base64
 import socket
 import xml.etree.ElementTree as ET
-from datetime import datetime
+from datetime import datetime, timedelta
 from database import get_conn
 from sms_service import get_sms_history, receive_sms, set_live_mode, get_live_mode
 from simulation_system import handle_unregistered_user, handle_registered_user
@@ -476,16 +476,23 @@ def manage_assignees():
     conn.close()
     return jsonify([r['name'] for r in rows])
 
-@app.route('/api/support/requests')
+@app.route('/api/support/users')
 @basic_auth_required
 @log_function_entry
-def get_support_requests():
+def get_support_users():
     category = request.args.get('category')
     status = request.args.get('status')
     assigned_to = request.args.get('assigned_to')
-    
+
     query = """
-        SELECT r.*, u.name || ' ' || COALESCE(u.last_name, '') as user_full_name, u.phone 
+        SELECT u.id as user_id, u.phone, u.name, u.last_name, u.city,
+               u.name || ' ' || COALESCE(u.last_name, '') as full_name,
+               COUNT(r.id) as total_count,
+               SUM(CASE WHEN r.status = 'new' THEN 1 ELSE 0 END) as new_count,
+               SUM(CASE WHEN r.status = 'in_progress' THEN 1 ELSE 0 END) as in_progress_count,
+               SUM(CASE WHEN r.status = 'completed' THEN 1 ELSE 0 END) as completed_count,
+               SUM(CASE WHEN r.status IN ('new','in_progress') THEN 1 ELSE 0 END) as open_count,
+               MAX(r.created_at) as last_request_at
         FROM support_requests r
         JOIN users u ON r.user_id = u.id
         WHERE 1=1
@@ -500,14 +507,226 @@ def get_support_requests():
     if assigned_to:
         query += " AND r.assigned_to = ?"
         params.append(assigned_to)
-        
-    query += " ORDER BY r.created_at DESC"
-    
+
+    query += """
+        GROUP BY u.id, u.phone, u.name, u.last_name, u.city
+        ORDER BY open_count DESC, last_request_at DESC
+    """
+
     conn = get_conn()
     rows = conn.execute(query, params).fetchall()
     conn.close()
-    
+
     return jsonify([dict(r) for r in rows])
+
+@app.route('/api/support/requests')
+@basic_auth_required
+@log_function_entry
+def get_support_requests():
+    category = request.args.get('category')
+    status = request.args.get('status')
+    assigned_to = request.args.get('assigned_to')
+    user_id = request.args.get('user_id')
+
+    query = """
+        SELECT r.*, u.name || ' ' || COALESCE(u.last_name, '') as user_full_name, u.phone
+        FROM support_requests r
+        JOIN users u ON r.user_id = u.id
+        WHERE 1=1
+    """
+    params = []
+    if category:
+        query += " AND r.category = ?"
+        params.append(category)
+    if status:
+        query += " AND r.status = ?"
+        params.append(status)
+    if assigned_to:
+        query += " AND r.assigned_to = ?"
+        params.append(assigned_to)
+    if user_id:
+        query += " AND r.user_id = ?"
+        params.append(user_id)
+
+    query += " ORDER BY r.created_at DESC"
+
+    conn = get_conn()
+    rows = conn.execute(query, params).fetchall()
+    conn.close()
+
+    return jsonify([dict(r) for r in rows])
+
+@app.route('/api/support/thread')
+@basic_auth_required
+@log_function_entry
+def get_support_thread():
+    phone = request.args.get('phone')
+    if not phone:
+        return jsonify([])
+    limit = request.args.get('limit', 200, type=int)
+    return jsonify(get_sms_history(phone, limit=limit))
+
+@app.route('/api/support/reply', methods=['POST'])
+@basic_auth_required
+@log_function_entry
+def reply_support_thread():
+    data = request.json or {}
+    user_id = data.get('user_id')
+    message = (data.get('message') or '').strip()
+    request_id = data.get('request_id')  # optional
+
+    if not user_id or not message:
+        return jsonify({"error": "Missing user_id or message"}), 400
+
+    conn = get_conn()
+    user = conn.execute("SELECT phone FROM users WHERE id = ?", (user_id,)).fetchone()
+    if not user:
+        conn.close()
+        return jsonify({"error": "User not found"}), 404
+
+    from sms_service import send_sms
+    result = send_sms(user['phone'], message, user_id)
+    if result is False:
+        conn.close()
+        return jsonify({"status": "error", "reason": "rate_limited"}), 429
+
+    if request_id:
+        req = conn.execute(
+            "SELECT id FROM support_requests WHERE id = ? AND user_id = ?",
+            (request_id, user_id)
+        ).fetchone()
+        if req:
+            conn.execute(
+                "UPDATE support_requests SET last_response_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (request_id,)
+            )
+            conn.commit()
+
+    conn.close()
+    return jsonify({"status": "success"})
+
+@app.route('/api/users/<int:user_id>', methods=['GET', 'PUT'])
+@basic_auth_required
+@log_function_entry
+def manage_user(user_id):
+    conn = get_conn()
+
+    if request.method == 'PUT':
+        data = request.json or {}
+        name = (data.get('name') or '').strip()
+        if not name:
+            conn.close()
+            return jsonify({"error": "שם הוא שדה חובה"}), 400
+
+        last_name = (data.get('last_name') or '').strip() or None
+        city = (data.get('city') or '').strip() or None
+
+        age_raw = data.get('age')
+        age = None
+        if age_raw not in (None, ''):
+            try:
+                age = int(age_raw)
+            except (TypeError, ValueError):
+                conn.close()
+                return jsonify({"error": "גיל לא תקין"}), 400
+            if age < 5 or age > 120:
+                conn.close()
+                return jsonify({"error": "גיל לא תקין"}), 400
+
+        existing = conn.execute("SELECT id FROM users WHERE id = ?", (user_id,)).fetchone()
+        if not existing:
+            conn.close()
+            return jsonify({"error": "User not found"}), 404
+
+        conn.execute(
+            "UPDATE users SET name = ?, last_name = ?, city = ?, age = ? WHERE id = ?",
+            (name, last_name, city, age, user_id)
+        )
+        conn.commit()
+
+    row = conn.execute(
+        "SELECT id, phone, name, last_name, city, age, registered_at FROM users WHERE id = ?",
+        (user_id,)
+    ).fetchone()
+    conn.close()
+
+    if not row:
+        return jsonify({"error": "User not found"}), 404
+    return jsonify(dict(row))
+
+@app.route('/api/users/<int:user_id>/subscriptions')
+@basic_auth_required
+@log_function_entry
+def get_user_subscriptions_admin(user_id):
+    conn = get_conn()
+    rows = conn.execute(
+        """
+        SELECT s.*, t.name as tractate_name
+        FROM subscriptions s
+        JOIN tractates t ON s.tractate_id = t.id
+        WHERE s.user_id = ?
+        ORDER BY s.is_active DESC, s.created_at DESC
+        """,
+        (user_id,)
+    ).fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
+
+@app.route('/api/subscriptions/<int:sub_id>', methods=['PUT'])
+@basic_auth_required
+@log_function_entry
+def update_subscription_admin(sub_id):
+    data = request.json or {}
+    conn = get_conn()
+
+    existing = conn.execute("SELECT * FROM subscriptions WHERE id = ?", (sub_id,)).fetchone()
+    if not existing:
+        conn.close()
+        return jsonify({"error": "Subscription not found"}), 404
+
+    try:
+        current_daf = float(data.get('current_daf'))
+        end_daf = float(data.get('end_daf'))
+        dafim_per_day = float(data.get('dafim_per_day'))
+        send_hour = int(data.get('send_hour'))
+    except (TypeError, ValueError):
+        conn.close()
+        return jsonify({"error": "נתונים לא תקינים"}), 400
+
+    question_type = data.get('question_type')
+    if question_type not in ('all', 'rashi_only'):
+        conn.close()
+        return jsonify({"error": "סוג שאלות לא תקין"}), 400
+
+    if current_daf < 2 or end_daf < current_daf or dafim_per_day <= 0 or not (0 <= send_hour <= 23):
+        conn.close()
+        return jsonify({"error": "נתונים לא תקינים"}), 400
+
+    frozen = data.get('frozen', False)
+    if frozen:
+        try:
+            freeze_days = int(data.get('freeze_days'))
+            if freeze_days < 1:
+                raise ValueError
+        except (TypeError, ValueError):
+            conn.close()
+            return jsonify({"error": "מספר ימי הקפאה לא תקין"}), 400
+        pause_until = (datetime.now() + timedelta(days=freeze_days)).date().isoformat()
+    else:
+        pause_until = None
+
+    conn.execute(
+        """
+        UPDATE subscriptions
+        SET current_daf = ?, end_daf = ?, dafim_per_day = ?, send_hour = ?, question_type = ?,
+            is_active = 1, pause_until = ?
+        WHERE id = ?
+        """,
+        (current_daf, end_daf, dafim_per_day, send_hour, question_type, pause_until, sub_id)
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"status": "success"})
 
 @app.route('/api/support/update', methods=['POST'])
 @basic_auth_required
