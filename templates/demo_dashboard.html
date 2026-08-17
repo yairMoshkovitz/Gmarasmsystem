@@ -86,6 +86,18 @@
         </div>
     </div>
 
+    <!-- Answers Activity By Day -->
+    <div class="row g-4 mb-4">
+        <div class="col-md-12">
+            <div class="card p-4">
+                <h4 class="mb-4">פעילות תשובות לפי יום (14 יום אחרונים)</h4>
+                <div class="chart-container">
+                    <canvas id="answersByDayChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Charts Row 2 -->
     <div class="row g-4 mb-4">
         <div class="col-md-6">
@@ -135,6 +147,18 @@
             };
         }),
         answers: { yes: 7840, no: 2150 },
+        answers_by_day: Array.from({length: 14}, (_, i) => {
+            const d = new Date();
+            d.setDate(d.getDate() - (13 - i));
+            const yes = Math.floor(Math.random() * 60) + 40;
+            const no = Math.floor(Math.random() * 25) + 10;
+            return {
+                date: d.toISOString().split('T')[0],
+                yes: yes,
+                no: no,
+                answered_users: Math.floor((yes + no) * 0.85)
+            };
+        }),
         ages: [
             { group: 'עד 12', count: 45 },
             { group: '13-18', count: 320 },
@@ -193,6 +217,58 @@
                 }]
             },
             options: { responsive: true, maintainAspectRatio: false }
+        });
+
+        // 2b. Answers By Day Chart (stacked yes/no bars + answered-users line)
+        new Chart(document.getElementById('answersByDayChart'), {
+            data: {
+                labels: demoData.answers_by_day.map(d => d.date),
+                datasets: [
+                    {
+                        type: 'bar',
+                        label: 'ענו כן',
+                        data: demoData.answers_by_day.map(d => d.yes),
+                        backgroundColor: '#2ecc71',
+                        stack: 'answers'
+                    },
+                    {
+                        type: 'bar',
+                        label: 'ענו לא',
+                        data: demoData.answers_by_day.map(d => d.no),
+                        backgroundColor: '#e74c3c',
+                        stack: 'answers'
+                    },
+                    {
+                        type: 'line',
+                        label: 'משתמשים שענו',
+                        data: demoData.answers_by_day.map(d => d.answered_users),
+                        borderColor: '#f39c12',
+                        backgroundColor: '#f39c12',
+                        tension: 0.3,
+                        pointRadius: 4,
+                        fill: false
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: { stacked: true },
+                    y: { stacked: true, beginAtZero: true, ticks: { precision: 0 } }
+                },
+                plugins: {
+                    tooltip: {
+                        callbacks: {
+                            footer: (items) => {
+                                const day = items[0].label;
+                                const d = demoData.answers_by_day.find(x => x.date === day);
+                                return d ? `סה"כ תשובות: ${d.yes + d.no}` : '';
+                            }
+                        }
+                    }
+                }
+            }
         });
 
         // 3. Age Distribution Chart

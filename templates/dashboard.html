@@ -126,6 +126,18 @@
         </div>
     </div>
 
+    <!-- Answers Activity By Day -->
+    <div class="row g-4 mb-4">
+        <div class="col-md-12">
+            <div class="card p-4">
+                <h4 class="mb-4">פעילות תשובות לפי יום (14 יום אחרונים)</h4>
+                <div class="chart-container">
+                    <canvas id="answersByDayChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Charts Row 2 -->
     <div class="row g-4 mb-4">
         <div class="col-md-6">
@@ -272,6 +284,58 @@
                     }]
                 },
                 options: { responsive: true, maintainAspectRatio: false }
+            });
+
+            // 2b. Answers By Day Chart (stacked yes/no bars + answered-users line)
+            new Chart(document.getElementById('answersByDayChart'), {
+                data: {
+                    labels: data.answers_by_day.map(d => d.date),
+                    datasets: [
+                        {
+                            type: 'bar',
+                            label: 'ענו כן',
+                            data: data.answers_by_day.map(d => d.yes),
+                            backgroundColor: '#2ecc71',
+                            stack: 'answers'
+                        },
+                        {
+                            type: 'bar',
+                            label: 'ענו לא',
+                            data: data.answers_by_day.map(d => d.no),
+                            backgroundColor: '#e74c3c',
+                            stack: 'answers'
+                        },
+                        {
+                            type: 'line',
+                            label: 'משתמשים שענו',
+                            data: data.answers_by_day.map(d => d.answered_users),
+                            borderColor: '#075e54',
+                            backgroundColor: '#075e54',
+                            tension: 0.3,
+                            pointRadius: 4,
+                            fill: false
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: { stacked: true },
+                        y: { stacked: true, beginAtZero: true, ticks: { precision: 0 } }
+                    },
+                    plugins: {
+                        tooltip: {
+                            callbacks: {
+                                footer: (items) => {
+                                    const day = items[0].label;
+                                    const d = data.answers_by_day.find(x => x.date === day);
+                                    return d ? `סה"כ תשובות: ${d.yes + d.no}` : '';
+                                }
+                            }
+                        }
+                    }
+                }
             });
 
             // 3. Age Distribution Chart

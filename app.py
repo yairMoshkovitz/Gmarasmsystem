@@ -268,7 +268,7 @@ def chart_stats():
     users_data = conn.execute(users_query).fetchall()
     yes_keywords = ['כן', 'נכון', 'אמת', 'יאפ', 'חיובי']
     responses = conn.execute("SELECT response_text FROM sent_questions WHERE responded_at IS NOT NULL ORDER BY responded_at DESC LIMIT 500").fetchall()
-    
+
     yes_count = 0
     no_count = 0
     for r in responses:
@@ -277,7 +277,28 @@ def chart_stats():
             yes_count += 1
         else:
             no_count += 1
-            
+
+    if is_postgres:
+        answers_by_day_query = "SELECT date(responded_at) as date, user_id, response_text FROM sent_questions WHERE responded_at IS NOT NULL AND responded_at >= CURRENT_DATE - INTERVAL '14 days' ORDER BY responded_at"
+    else:
+        answers_by_day_query = "SELECT date(responded_at) as date, user_id, response_text FROM sent_questions WHERE responded_at IS NOT NULL AND date(responded_at) >= date('now', '-14 days') ORDER BY responded_at"
+
+    answers_by_day_rows = conn.execute(answers_by_day_query).fetchall()
+    by_day = {}
+    for r in answers_by_day_rows:
+        entry = by_day.setdefault(r['date'], {"yes": 0, "no": 0, "users": set()})
+        txt = (r['response_text'] or "").strip().lower()
+        if any(kw in txt for kw in yes_keywords):
+            entry["yes"] += 1
+        else:
+            entry["no"] += 1
+        entry["users"].add(r['user_id'])
+
+    answers_by_day = [
+        {"date": d, "yes": v["yes"], "no": v["no"], "answered_users": len(v["users"])}
+        for d, v in sorted(by_day.items())
+    ]
+
     age_data = conn.execute("SELECT CASE \
         WHEN age < 13 THEN 'עד 12' \
         WHEN age BETWEEN 13 AND 18 THEN '13-18' \
@@ -303,6 +324,7 @@ def chart_stats():
     return jsonify({
         "users_growth": [{"date": r['date'], "count": r['count']} for r in reversed(users_data)],
         "answers": {"yes": yes_count, "no": no_count},
+        "answers_by_day": answers_by_day,
         "ages": [{"group": r['age_group'], "count": r['count']} for r in age_data],
         "cities": [{"city": r['city'], "count": r['count']} for r in city_data],
         "tractates": [{"name": r['name'], "count": r['count']} for r in tractate_stats]
