@@ -26,9 +26,15 @@ def test_registration_with_rashi_only(clean_db):
     # 2. Masechta
     handle_registered_user(phone, user, "ברכות ב עד ד")
     
-    # 3. Rate and Hour
-    handle_registered_user(phone, user, "1, 10")
-    
+    # 3. Rate then Hour (sent as two separate messages)
+    handle_registered_user(phone, user, "1")
+
+    # Check state is now Step 3B (awaiting hour)
+    state = USER_STATES.get(phone)
+    assert state['state'] == 'AWAITING_REG_STEP_3B'
+
+    handle_registered_user(phone, user, "10")
+
     # Check state is now Step 4
     state = USER_STATES.get(phone)
     assert state['state'] == 'AWAITING_REG_STEP_4'
@@ -46,8 +52,9 @@ def test_registration_with_all_questions(clean_db):
     handle_unregistered_user(phone, "ישראל, ישראלי, ירושלים, 30")
     user = clean_db.execute("SELECT * FROM users WHERE phone=?", (phone,)).fetchone()
     handle_registered_user(phone, user, "ברכות ב עד ד")
-    handle_registered_user(phone, user, "1, 10")
-    
+    handle_registered_user(phone, user, "1")
+    handle_registered_user(phone, user, "10")
+
     # Choose All (Rashi + Tosafot)
     handle_registered_user(phone, user, "2")
     

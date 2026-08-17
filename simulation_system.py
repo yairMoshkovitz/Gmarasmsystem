@@ -249,23 +249,48 @@ def handle_registered_user(phone, user, message):
                 send_sms(phone, get_template("tractate_not_found", tractate=message.split()[0] if message.split() else message))
                 return
 
-        # 3. State: AWAITING_REG_STEP_3
+        # 3. State: AWAITING_REG_STEP_3 (daily page rate)
         if state_info["state"] == "AWAITING_REG_STEP_3":
             try:
-                # Expected format: Rate, Hour or Rate Hour
                 clean_msg = message.replace(',', ' ').strip()
                 parts = clean_msg.split()
-                if len(parts) < 2:
-                     send_sms(phone, "אנא שלח הספק ושעה מופרדים בפסיק או רווח.\nלדוגמא: 1, 18")
-                     return
-                
+                if not parts:
+                    send_sms(phone, "אנא שלח מספר דפים ליום.\nלדוגמה: 1")
+                    return
+
                 rate = float(parts[0])
-                hour = int(parts[1])
 
                 if rate < 1 or rate != int(rate):
                     send_sms(phone, "הספק לא תקין. אנא הכנס מספר שלם של דפים ליום (לדוגמה: 1 או 2).")
                     return
                 rate = float(int(rate))
+
+                # Transition to Step 3B: sending hour
+                USER_STATES[phone] = {
+                    "state": "AWAITING_REG_STEP_3B",
+                    "tractate_id": state_info["tractate_id"],
+                    "tractate_name": state_info["tractate_name"],
+                    "start_daf": state_info["start_daf"],
+                    "end_daf": state_info["end_daf"],
+                    "rate": rate
+                }
+                send_sms(phone, get_template("registration_step_3b_instructions"))
+                return
+            except Exception as e:
+                print(f"DEBUG Step 3 Error: {e}")
+                send_sms(phone, "שגיאה בהספק היומי. אנא ודא שהכנסת מספר תקין.\nלדוגמה: 1")
+                return
+
+        # 3B. State: AWAITING_REG_STEP_3B (sending hour)
+        if state_info["state"] == "AWAITING_REG_STEP_3B":
+            try:
+                clean_msg = message.replace(',', ' ').strip()
+                parts = clean_msg.split()
+                if not parts:
+                    send_sms(phone, "אנא שלח שעה לשליחת השאלות.\nלדוגמה: 18")
+                    return
+
+                hour = int(parts[0])
 
                 if not (0 <= hour <= 23):
                     if hour == 24: hour = 0
@@ -280,14 +305,14 @@ def handle_registered_user(phone, user, message):
                     "tractate_name": state_info["tractate_name"],
                     "start_daf": state_info["start_daf"],
                     "end_daf": state_info["end_daf"],
-                    "rate": rate,
+                    "rate": state_info["rate"],
                     "hour": hour
                 }
                 send_sms(phone, get_template("registration_step_4_instructions"))
                 return
             except Exception as e:
-                print(f"DEBUG Step 3 Error: {e}")
-                send_sms(phone, "שגיאה בפרטי ההספק או השעה. אנא ודא שהכנסת מספרים תקינים.\nלדוגמא: 1, 18")
+                print(f"DEBUG Step 3B Error: {e}")
+                send_sms(phone, "שגיאה בשעה שנשלחה. אנא ודא שהכנסת מספר תקין.\nלדוגמה: 18")
                 return
 
         # 4. State: AWAITING_REG_STEP_4 (Rashi/Tosafot preference)

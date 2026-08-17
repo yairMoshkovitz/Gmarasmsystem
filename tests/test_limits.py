@@ -58,7 +58,8 @@ def test_invalid_hour_registration():
     conn.commit()
     conn.close()
 
-    simulate_inbound(phone, "1, 25")
+    simulate_inbound(phone, "1")
+    simulate_inbound(phone, "25")
     assert "שעה לא תקינה" in get_last_sms(phone)
 
 def test_daf_out_of_range_update():

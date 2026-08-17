@@ -24,8 +24,9 @@ def test_full_registration_flow():
     all_msgs = get_all_outgoing_sms(phone)
     assert any("להגדיר את ההספק היומי" in m for m in all_msgs)
 
-    # Step 3: Rate and Hour
-    simulate_inbound(phone, "1, 18")
+    # Step 3: Rate, then Hour (sent as two separate messages)
+    simulate_inbound(phone, "1")
+    simulate_inbound(phone, "18")
 
     # Step 4: Question preference
     simulate_inbound(phone, "1")
@@ -37,7 +38,8 @@ def test_registration_with_gimatriya():
     phone = "0501112222"
     simulate_inbound(phone, "דוד, לוי, ירושלים, 30")
     simulate_inbound(phone, "ברכות כ עד ל")
-    simulate_inbound(phone, "1, 10")
+    simulate_inbound(phone, "1")
+    simulate_inbound(phone, "10")
     simulate_inbound(phone, "1")
     
     conn = get_conn()

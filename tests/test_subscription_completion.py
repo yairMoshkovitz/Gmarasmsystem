@@ -28,7 +28,8 @@ def test_subscription_completion_exact_daf():
     assert state["end_daf"] == 14.5
     
     # Complete registration
-    handle_registered_user(phone, user, "1, 8") # 1 daf per day, 8 AM
+    handle_registered_user(phone, user, "1") # 1 daf per day
+    handle_registered_user(phone, user, "8") # 8 AM
     
     # 3. Check Database Storage
     sub = conn.execute("SELECT * FROM subscriptions WHERE user_id=?", (user_id,)).fetchone()
@@ -108,8 +109,9 @@ def test_subscription_partial_last_day_range():
     USER_STATES[phone] = {"state": "AWAITING_REG_STEP_2"}
     handle_registered_user(phone, user, "ברכות ב ע\"א עד י ע\"ב")
     
-    # Rate of 6.0 dafim per day
-    handle_registered_user(phone, user, "6, 6")
+    # Rate of 6.0 dafim per day, hour 6
+    handle_registered_user(phone, user, "6")
+    handle_registered_user(phone, user, "6")
     
     # current_daf=8.0 (ח ע"א), end_daf=10.5 (י ע"ב), rate=6.0
     conn.execute("UPDATE subscriptions SET current_daf = 8.0 WHERE user_id=?", (user_id,))
