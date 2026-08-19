@@ -1034,8 +1034,36 @@ def inforu_webhook():
         return "OK", 200
     return "No data found in request", 400
 
+SHOPLIST_RELAY_URL = os.environ.get("SHOPLIST_RELAY_URL")
+SHOPLIST_RELAY_WHITELIST = set(os.environ.get("SHOPLIST_RELAY_WHITELIST", "").split(","))
+SHOPLIST_RELAY_PREFIX = ". "
+
+
+def _maybe_relay_to_shoplist(phone, message):
+    """REMOVABLE: interim relay of incoming SMS to the standalone shopping-list
+    system (separate repo/DB). Delete this function + its call site in
+    process_incoming_sms to disable. The shopping-list system sends its own
+    reply directly via its own Inforu account - this only forwards, it does
+    not wait for or send back a reply."""
+    if not SHOPLIST_RELAY_URL:
+        return False
+    is_prefixed = message.startswith(SHOPLIST_RELAY_PREFIX)
+    is_whitelisted = phone in SHOPLIST_RELAY_WHITELIST
+    if not (is_prefixed or is_whitelisted):
+        return False
+    forwarded = message[len(SHOPLIST_RELAY_PREFIX):] if is_prefixed else message
+    try:
+        import requests
+        requests.post(SHOPLIST_RELAY_URL, json={"phone": phone, "message": forwarded}, timeout=10)
+    except Exception as e:
+        print(f"Shoplist relay error: {e}")
+    return True
+
+
 @log_function_entry
 def process_incoming_sms(phone, message):
+    if _maybe_relay_to_shoplist(phone, message):
+        return
     admin_phone = ["0584555723","0556622188"]
     if phone in admin_phone:
         from sms_service import send_sms
