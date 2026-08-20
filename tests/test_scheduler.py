@@ -89,6 +89,51 @@ def test_scheduler_paused_subscription():
     assert get_last_sms(phone) is None
     set_live_mode(False)
 
+def test_paused_subscription_does_not_advance_daf():
+    """
+    Regression: advance_all_subscriptions_daily used to advance current_daf
+    for paused subscriptions too, because its query only checked is_active
+    and ignored pause_until. That silently un-froze the study range (the
+    'page' kept moving forward) even though send_sms was correctly skipped.
+    """
+    from scheduler import advance_all_subscriptions_daily
+
+    phone = "0502220005"
+    user_id, sub_id = create_user_with_subscription(phone, "Sched5")
+
+    conn = get_conn()
+    original = conn.execute("SELECT current_daf FROM subscriptions WHERE id=?", (sub_id,)).fetchone()
+    original_daf = original["current_daf"]
+    conn.close()
+
+    # Freeze for a week
+    future = (date.today() + timedelta(days=7)).isoformat()
+    conn = get_conn()
+    conn.execute("UPDATE subscriptions SET pause_until=? WHERE id=?", (future, sub_id))
+    conn.commit()
+    conn.close()
+
+    advance_all_subscriptions_daily()
+
+    conn = get_conn()
+    still = conn.execute("SELECT current_daf FROM subscriptions WHERE id=?", (sub_id,)).fetchone()
+    conn.close()
+    assert still["current_daf"] == original_daf
+
+    # Once the pause expires, advancement should resume normally
+    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    conn = get_conn()
+    conn.execute("UPDATE subscriptions SET pause_until=? WHERE id=?", (yesterday, sub_id))
+    conn.commit()
+    conn.close()
+
+    advance_all_subscriptions_daily()
+
+    conn = get_conn()
+    resumed = conn.execute("SELECT current_daf FROM subscriptions WHERE id=?", (sub_id,)).fetchone()
+    conn.close()
+    assert resumed["current_daf"] == original_daf + 1.0
+
 def test_advance_subscription_logic():
     phone = "0502220004"
     # Create with explicit tractate name

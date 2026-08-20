@@ -524,6 +524,7 @@ def advance_all_subscriptions_daily():
     This ensures daf progression happens once per day, separate from question sending.
     """
     conn = get_conn()
+    today = get_israel_time().date().isoformat()
     active_subs = conn.execute(
         """
         SELECT s.id, s.dafim_per_day, s.current_daf, s.end_daf, s.start_daf, t.name as tractate_name, u.phone, u.id as user_id
@@ -531,7 +532,9 @@ def advance_all_subscriptions_daily():
         JOIN tractates t ON s.tractate_id = t.id
         JOIN users u ON s.user_id = u.id
         WHERE s.is_active = 1
-        """
+        AND (s.pause_until IS NULL OR s.pause_until <= ?)
+        """,
+        (today,)
     ).fetchall()
     
     advanced_count = 0
